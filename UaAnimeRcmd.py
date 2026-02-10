@@ -40,6 +40,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 HIKKA_API_BASE = os.getenv("HIKKA_API_BASE", "https://api.hikka.io").strip().rstrip("/")
 HIKKA_API_TOKEN = os.getenv("HIKKA_API_TOKEN", "").strip()
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "").strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("Вкажи BOT_TOKEN у .env (BOT_TOKEN=...)")
@@ -479,6 +480,33 @@ START_TEXT = (
     "Просто натисни кнопку <b>🎲 Випадкове аніме</b>, щоб отримати рекомендацію!\n"
 )
 
+CHANNEL_SUBSCRIBE_TEXT = (
+    "👋 <b>Вітаю!</b>\n\n"
+    "Підпишись на наш канал, щоб не пропустити оновлення бота 📢"
+)
+
+
+def is_new_user(user_id: int) -> bool:
+    """Перевіряє чи користувач новий (немає запису в bot_users)"""
+    conn = db()
+    row = conn.execute("SELECT 1 FROM bot_users WHERE user_id = %s", (user_id,)).fetchone()
+    return row is None
+
+
+def kb_channel_subscribe() -> InlineKeyboardMarkup:
+    """Клавіатура з кнопкою підписки на канал + Продовжити"""
+    buttons = []
+    if CHANNEL_USERNAME:
+        channel = CHANNEL_USERNAME.lstrip("@")
+        buttons.append([
+            InlineKeyboardButton(text="📢 Підписатись на канал", url=f"https://t.me/{channel}")
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="▶️ Продовжити", callback_data="subscribe:continue")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 # =========================
 # Keyboards & Handlers
 # =========================
@@ -586,9 +614,20 @@ async def cb_noop(c: CallbackQuery):
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, start_text: str, kb_start_func):
-    # Відправляємо стартове повідомлення з inline-кнопками + постійна reply-клавіатура
-    await message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
-    await message.answer(start_text, reply_markup=kb_start_func())
+    user_id = message.from_user.id
+    new_user = is_new_user(user_id)
+    
+    # Зберігаємо/оновлюємо користувача
+    with transaction():
+        touch_user(user_id, message.from_user.username, message.from_user.first_name)
+    
+    if new_user and CHANNEL_USERNAME:
+        # Новий користувач — показуємо рекомендацію підписки (без reply-клавіатури)
+        await message.answer(CHANNEL_SUBSCRIBE_TEXT, reply_markup=kb_channel_subscribe())
+    else:
+        # Існуючий користувач — одразу стартове меню + reply-клавіатура
+        await message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
+        await message.answer(start_text, reply_markup=kb_start_func())
 
 # Обробники для постійних reply-кнопок
 @router.message(F.text == "🏠 Меню")
@@ -598,6 +637,14 @@ async def btn_start(message: Message, start_text: str, kb_start_func):
 @router.message(F.text == "👤 Профіль")
 async def btn_profile(message: Message):
     await send_profile(message, message.from_user.id, edit=False)
+
+@router.callback_query(F.data == "subscribe:continue")
+async def cb_subscribe_continue(callback: CallbackQuery, start_text: str, kb_start_func):
+    """Обробник кнопки 'Продовжити' після повідомлення про підписку"""
+    await callback.answer()
+    # Додаємо reply-клавіатуру після натискання Продовжити
+    await callback.message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
+    await callback.message.edit_text(start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "back"))
 async def cb_back(callback: CallbackQuery, start_text: str, kb_start_func):
