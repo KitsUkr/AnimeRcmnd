@@ -8,7 +8,7 @@ class AnimeCB(CallbackData, prefix="anime"):
     id: str      # cb_id
 
 class WatchCB(CallbackData, prefix="watch"):
-    action: str  # dummy (for "Сайти для перегляду" header or similar)
+    action: str  # dummy
 
 class GenreCB(CallbackData, prefix="genre"):
     action: str  # main, mode, toggle, page, clear, back, recommend

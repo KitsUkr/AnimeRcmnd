@@ -518,11 +518,6 @@ def kb_watch_links(cb_id: str, links: List[Dict[str, str]], back_data: str | Non
         else:
             regular_links.append(link)
     
-    # Header dummy button
-    kb.inline_keyboard.append([
-        InlineKeyboardButton(text="--- Сайти для перегляду ---", callback_data=WatchCB(action="noop").pack())
-    ])
-
     # Звичайні сайти
     for link in regular_links:
         txt = str(link.get("text") or "Link")
@@ -556,7 +551,7 @@ def kb_torrent_links(cb_id: str, links: List[Dict[str, str]], back_data: str | N
     
     # Header
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="--- Торренти ---", callback_data=WatchCB(action="noop").pack())
+        InlineKeyboardButton(text="📥 Торренти", callback_data=WatchCB(action="noop").pack())
     ])
 
     # Toloka links
