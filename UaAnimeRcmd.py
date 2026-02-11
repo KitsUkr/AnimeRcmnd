@@ -482,7 +482,8 @@ START_TEXT = (
 
 CHANNEL_SUBSCRIBE_TEXT = (
     "👋 <b>Вітаю!</b>\n\n"
-    "Підпишись на наш канал, щоб не пропустити оновлення бота 📢"
+    "Підпишись на наш канал, щоб не пропустити оновлення бота 📢\n\n"
+    "<b>P.S: Підписка не є обов'язковою!</b>\n"
 )
 
 
@@ -502,7 +503,7 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📢 Підписатись на канал", url=f"https://t.me/{channel}")
         ])
     buttons.append([
-        InlineKeyboardButton(text="▶️ Продовжити", callback_data="subscribe:continue")
+        InlineKeyboardButton(text="Продовжити", callback_data="subscribe:continue")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
