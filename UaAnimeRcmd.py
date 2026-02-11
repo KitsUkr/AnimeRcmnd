@@ -547,26 +547,34 @@ def kb_watch_links(cb_id: str, links: List[Dict[str, str]], back_data: str | Non
         else:
             regular_links.append(link)
     
-    # Звичайні сайти
-    for link in regular_links:
-        txt = str(link.get("text") or "Link")
-        url = str(link.get("url") or "")
-        if url:
-            kb.inline_keyboard.append([InlineKeyboardButton(text=txt, url=url)])
-
     if back_data is None:
         back_data = AnimeCB(action="back_to_list", id=cb_id).pack()
 
-    # Кнопка торрентів якщо є Толока
-    if torrent_links:
-        if history_page is not None:
-            # Для історії використовуємо HistoryCB
-            torrents_cb = HistoryCB(action="torrents", cb_id=cb_id, page=history_page).pack()
-        else:
-            torrents_cb = AnimeCB(action="torrents", id=cb_id).pack()
-        kb.inline_keyboard.append([
-            InlineKeyboardButton(text="📥 Торренти", callback_data=torrents_cb)
-        ])
+    if not regular_links and torrent_links:
+        # Тільки торрент-посилання — показуємо Толоку напряму без доп. кнопки
+        for link in torrent_links:
+            txt = str(link.get("text") or "Toloka")
+            url = str(link.get("url") or "")
+            if url:
+                kb.inline_keyboard.append([InlineKeyboardButton(text=txt, url=url)])
+    else:
+        # Звичайні сайти
+        for link in regular_links:
+            txt = str(link.get("text") or "Link")
+            url = str(link.get("url") or "")
+            if url:
+                kb.inline_keyboard.append([InlineKeyboardButton(text=txt, url=url)])
+
+        # Кнопка торрентів якщо є і звичайні, і Толока
+        if torrent_links:
+            if history_page is not None:
+                # Для історії використовуємо HistoryCB
+                torrents_cb = HistoryCB(action="torrents", cb_id=cb_id, page=history_page).pack()
+            else:
+                torrents_cb = AnimeCB(action="torrents", id=cb_id).pack()
+            kb.inline_keyboard.append([
+                InlineKeyboardButton(text="📥 Торренти", callback_data=torrents_cb)
+            ])
 
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="« Назад", callback_data=back_data)

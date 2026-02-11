@@ -325,19 +325,32 @@ def kb_likes_watch(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup:
         else:
             regular_links.append(link)
 
-    # Звичайні сайти
-    for link in regular_links:
-        text_btn = str(link.get("text") or link.get("url") or "").strip()
-        url = str(link.get("url") or "").strip()
-        if not url:
-            continue
-        if len(text_btn) > 60:
-            text_btn = text_btn[:57] + "..."
-        kb.inline_keyboard.append([InlineKeyboardButton(text=f"• {text_btn}", url=url)])
+    if not regular_links and has_toloka:
+        # Тільки торрент-посилання — показуємо Толоку напряму без доп. кнопки
+        for link in watch_links[:20]:
+            text_btn = str(link.get("text") or link.get("url") or "").strip()
+            url = str(link.get("url") or "").strip()
+            if not url:
+                continue
+            if text_btn.lower() != "toloka":
+                continue
+            if len(text_btn) > 60:
+                text_btn = text_btn[:57] + "..."
+            kb.inline_keyboard.append([InlineKeyboardButton(text=f"• {text_btn}", url=url)])
+    else:
+        # Звичайні сайти
+        for link in regular_links:
+            text_btn = str(link.get("text") or link.get("url") or "").strip()
+            url = str(link.get("url") or "").strip()
+            if not url:
+                continue
+            if len(text_btn) > 60:
+                text_btn = text_btn[:57] + "..."
+            kb.inline_keyboard.append([InlineKeyboardButton(text=f"• {text_btn}", url=url)])
 
-    # Кнопка торрентів якщо є Толока
-    if has_toloka:
-        kb.inline_keyboard.append([InlineKeyboardButton(text="📥 Торренти", callback_data=f"prof:likes_torrents:{idx}")])
+        # Кнопка торрентів якщо є і звичайні, і Толока
+        if has_toloka:
+            kb.inline_keyboard.append([InlineKeyboardButton(text="📥 Торренти", callback_data=f"prof:likes_torrents:{idx}")])
 
     kb.inline_keyboard.append([InlineKeyboardButton(text="« Назад", callback_data=f"prof:likes_photo:{idx}")])
     return kb
