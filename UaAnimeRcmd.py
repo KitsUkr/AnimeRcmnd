@@ -638,6 +638,21 @@ async def cmd_start(message: Message, start_text: str, kb_start_func):
         await message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
         await message.answer(start_text, reply_markup=kb_start_func())
 
+@router.message(Command("feedback"))
+async def cmd_feedback(message: Message):
+    channel = CHANNEL_USERNAME.lstrip("@") if CHANNEL_USERNAME else ""
+    text = (
+        "💬 <b>Зворотний зв'язок</b>\n\n"
+        "Хочеш залишити відгук, пропозицію чи повідомити про баг?\n"
+        "Переходь у наш канал і пиши в коментарях 👇"
+    )
+    kb = None
+    if channel:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Перейти в канал", url=f"https://t.me/{channel}")]
+        ])
+    await message.answer(text, reply_markup=kb)
+
 # Обробники для постійних reply-кнопок
 @router.message(F.text == "🏠 Меню")
 async def btn_start(message: Message, start_text: str, kb_start_func):
