@@ -133,17 +133,16 @@ INSERT_CB_MAP = """
     INSERT INTO cb_map(
         cb_id, anime_id,
         description,
-        watch_links_json, created_at
+        created_at
     )
-    VALUES(%s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s)
     ON CONFLICT(anime_id) DO UPDATE SET
         description = EXCLUDED.description,
-        watch_links_json = EXCLUDED.watch_links_json,
         created_at = EXCLUDED.created_at
 """
 
 SELECT_CB_MAP_BY_ID = """
-    SELECT m.anime_id, l.title, m.watch_links_json 
+    SELECT m.anime_id, l.title
     FROM cb_map m
     LEFT JOIN anime_library l ON m.anime_id = l.slug
     WHERE m.cb_id=%s
@@ -152,7 +151,7 @@ SELECT_CB_MAP_BY_ID = """
 SELECT_CB_MAP_FULL = """
     SELECT m.anime_id, l.title, l.poster_url, l.hikka_url,
            l.year, l.score, l.episodes_total, l.genres_json,
-           m.description, m.watch_links_json, l.ua_poster_url, l.content_type
+           m.description, l.ua_poster_url, l.content_type
     FROM cb_map m
     LEFT JOIN anime_library l ON m.anime_id = l.slug
     WHERE m.cb_id=%s

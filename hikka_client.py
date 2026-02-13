@@ -184,6 +184,48 @@ def set_cached_details(slug: str, description: Optional[str], watch_links: List[
             ),
         )
 
+async def get_or_refresh_watch_links(slug: str, hikka_client: "HikkaClient") -> List[Dict[str, str]]:
+    """Отримати watch_links з кешу або оновити з API якщо TTL вичерпано."""
+    import aiohttp
+    
+    # 1. Спробувати з кешу (TTL перевіряється всередині)
+    cached = get_cached_details(slug)
+    if cached:
+        _, watch_links = cached
+        if watch_links:
+            return watch_links
+    
+    # 2. TTL вичерпано або немає даних — йдемо на API
+    try:
+        async with aiohttp.ClientSession() as session:
+            await hikka_client.load_details(session, slug)
+            watch_links = hikka_client.watch_links or []
+            description = hikka_client.description
+            
+            # Оновлюємо кеш з новим TTL
+            set_cached_details(slug, description, watch_links)
+            
+            return watch_links
+    except Exception as e:
+        print(f"[WATCH_LINKS] Помилка оновлення для {slug}: {e}")
+        
+        # 3. Fallback: повернути старі дані з кешу навіть якщо TTL вичерпано
+        conn = db()
+        row = conn.execute(
+            "SELECT watch_links_json FROM anime_details_cache WHERE slug=%s",
+            (slug,),
+        ).fetchone()
+        if row and row[0]:
+            try:
+                wl = json.loads(row[0])
+                if isinstance(wl, list):
+                    return wl
+            except Exception:
+                pass
+        
+        return []
+
+
 class HikkaClient:
     PREFIXES = ("", "/api", "/v1", "/api/v1")
     PATH = "/anime"

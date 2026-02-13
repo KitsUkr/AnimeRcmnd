@@ -24,7 +24,7 @@ from content_filters import router as content_type_router, get_selected_content_
 from year_filters import router as year_router, get_year_from, get_year_to
 from filters_hub import router as filters_hub_router
 from inline_handler import router as inline_router
-from hikka_client import HikkaClient
+from hikka_client import HikkaClient, get_or_refresh_watch_links
 from aiogram import BaseMiddleware
 from callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
 
@@ -368,13 +368,11 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
             """
             UPDATE cb_map SET 
                 description = %s,
-                watch_links_json = %s,
                 created_at = %s
             WHERE anime_id = %s
             """,
             (
                 anime.description,
-                json.dumps(anime.watch_links or [], ensure_ascii=False),
                 int(time.time()),
                 anime.id,
             ),
@@ -388,30 +386,22 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
                 cb_id,
                 anime.id,
                 anime.description,
-                json.dumps(anime.watch_links or [], ensure_ascii=False),
                 int(time.time()),
             ),
         )
         return cb_id  # Повертаємо новий cb_id
 
 
-def load_cb_map(cb_id: str) -> Optional[Tuple[str, str, List[Dict[str, str]]]]:
+def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
+    """Повертає (anime_id, title) або None."""
     conn = db()
     row = conn.execute(SELECT_CB_MAP_BY_ID, (cb_id,)).fetchone()
 
     if not row:
         return None
 
-    anime_id, title, watch_links_json = row
-    try:
-        wl = json.loads(watch_links_json) if watch_links_json else []
-        if not isinstance(wl, list):
-            wl = []
-    except Exception as e:
-        print(f"Error loading watch links: {e}")
-        wl = []
-
-    return str(anime_id), str(title), wl
+    anime_id, title = row
+    return str(anime_id), str(title or anime_id)
 
 
 # ✅ повністю відновлюємо Anime за cb_id (працює після рестарту)
@@ -425,7 +415,7 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
 
     (anime_id, title, poster_url, hikka_url,
      year, score, episodes_total, genres_json,
-     description, watch_links_json, ua_poster_url, content_type) = row
+     description, ua_poster_url, content_type) = row
 
     try:
         genres = json.loads(genres_json) if genres_json else []
@@ -434,14 +424,6 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
     except Exception as e:
         print(f"Error loading genres: {e}")
         genres = []
-
-    try:
-        wl = json.loads(watch_links_json) if watch_links_json else []
-        if not isinstance(wl, list):
-            wl = []
-    except Exception as e:
-        print(f"Error loading watch links (cb): {e}")
-        wl = []
 
     return Anime(
         id=str(anime_id),
@@ -454,7 +436,7 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
         description=str(description) if description else None,
         poster_url=str(poster_url) if poster_url else None,
         hikka_url=str(hikka_url) if hikka_url else None,
-        watch_links=wl,
+        watch_links=[],
         ua_poster_url=str(ua_poster_url) if ua_poster_url else None,
         content_type=str(content_type) if content_type else None,
     )
@@ -465,7 +447,7 @@ def resolve_anime_id_by_cb(cb_id: str) -> Optional[str]:
     if a:
         return a.id
     row = load_cb_map(cb_id)
-    return row[0] if row else None
+    return row[0] if row else None  # row = (anime_id, title)
 
 
 
@@ -839,7 +821,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
 
 
 @router.callback_query(AnimeCB.filter(F.action == "watch"))
-async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict):
+async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_client: HikkaClient):
     cb_id = callback_data.id
     load_map = db_funcs['load_cb_map']
     
@@ -848,7 +830,8 @@ async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_func
         await callback.answer("Дані застаріли 😔", show_alert=True)
         return
 
-    anime_id, title, watch_links = row
+    anime_id, title = row
+    watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     if not watch_links:
         await callback.answer("На жаль, посилань не знайдено.", show_alert=True)
         return
@@ -858,7 +841,7 @@ async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_func
 
 
 @router.callback_query(AnimeCB.filter(F.action == "torrents"))
-async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict):
+async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_client: HikkaClient):
     """Показує список торрент-посилань (Толока)"""
     cb_id = callback_data.id
     load_map = db_funcs['load_cb_map']
@@ -868,7 +851,8 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
         await callback.answer("Дані застаріли 😔", show_alert=True)
         return
 
-    anime_id, title, watch_links = row
+    anime_id, title = row
+    watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     
     # Фільтруємо тільки Toloka посилання
     torrent_links = [
@@ -1032,7 +1016,7 @@ async def cb_history_pages(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
 
 
 @router.callback_query(HistoryCB.filter(F.action == "watch"))
-async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict):
+async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict, hikka_client: HikkaClient):
     cb_id = callback_data.cb_id
     page_idx = callback_data.page
     
@@ -1042,7 +1026,8 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
         await c.answer("Дані застаріли 😔", show_alert=True)
         return
 
-    anime_id, title, watch_links = row
+    anime_id, title = row
+    watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     if not watch_links:
         await c.answer("На жаль, посилань не знайдено.", show_alert=True)
         return
@@ -1056,7 +1041,7 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
 
 
 @router.callback_query(HistoryCB.filter(F.action == "torrents"))
-async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict):
+async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict, hikka_client: HikkaClient):
     """Показує торрент-посилання в історії"""
     cb_id = callback_data.cb_id
     page_idx = callback_data.page
@@ -1067,7 +1052,8 @@ async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_fun
         await c.answer("Дані застаріли 😔", show_alert=True)
         return
 
-    anime_id, title, watch_links = row
+    anime_id, title = row
+    watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     
     # Фільтруємо тільки Toloka посилання
     torrent_links = [
