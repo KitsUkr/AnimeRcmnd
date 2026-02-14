@@ -6,6 +6,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 from database import db
 from callbacks import AdminCB
+from safe_edit import safe_edit_text
 
 router = Router()
 
@@ -142,14 +143,5 @@ async def cb_admin_refresh_stats(c: CallbackQuery):
         f"📊 Аніме в базі: <b>{s['total_in_base'] if s['total_in_base'] is not None else '—'}</b>\n"
     )
     
-    try:
-        await c.message.edit_text(text, reply_markup=kb_admin_panel())
-        await c.answer("Статистика оновлена ✅", show_alert=False)
-    except Exception as e:
-        error_msg = str(e).lower()
-        # Якщо повідомлення не змінилось - це нормально, статистика актуальна
-        if "message is not modified" in error_msg or "exactly the same" in error_msg:
-            await c.answer("Статистика вже актуальна ✅", show_alert=False)
-        else:
-            print(f"[ADMIN] Помилка оновлення статистики: {e}")
-            await c.answer("Помилка оновлення статистики", show_alert=True)
+    await safe_edit_text(c.message, text, reply_markup=kb_admin_panel())
+    await c.answer("Статистика оновлена ✅", show_alert=False)

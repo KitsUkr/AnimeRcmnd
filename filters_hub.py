@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from callbacks import MenuCB
+from safe_edit import safe_edit_text
 
 router = Router()
 
@@ -36,4 +37,4 @@ async def cb_open_filters_hub(c: CallbackQuery):
         await c.message.delete()
         await c.message.answer(text, reply_markup=kb_filters_hub())
     else:
-        await c.message.edit_text(text, reply_markup=kb_filters_hub())
+        await safe_edit_text(c.message, text, reply_markup=kb_filters_hub())

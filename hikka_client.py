@@ -11,6 +11,13 @@ from sql_queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPD
 from ui_shared import Anime
 from genre_filters import get_name_by_slug, get_slug_by_name
 
+
+class AllAnimeSeenError(Exception):
+    """Raised when user has seen all anime in the library (no filters)."""
+    def __init__(self, total_count: int):
+        self.total_count = total_count
+        super().__init__(f"All {total_count} anime have been seen")
+
 # Helper Constants
 META_TOTAL_TRANSLATED = "total_translated_titles"
 META_LAST_LIBRARY_SYNC = "last_library_sync"
@@ -898,10 +905,9 @@ class HikkaClient:
         conditions.append("score IS NOT NULL AND score > 0")
         
         if exclude_ids:
-            if len(exclude_ids) < 500:
-                placeholders = ','.join('%s' for _ in exclude_ids)
-                conditions.append(f"slug NOT IN ({placeholders})")
-                params.extend(exclude_ids)
+            placeholders = ','.join('%s' for _ in exclude_ids)
+            conditions.append(f"slug NOT IN ({placeholders})")
+            params.extend(exclude_ids)
                 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
@@ -1043,7 +1049,7 @@ class HikkaClient:
                     print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
                     return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, tries)
                 else:
-                    raise RuntimeError("Всі кандидати були переглянуті. Спробуйте змінити фільтри.")
+                    raise AllAnimeSeenError(count)
             
         got = random.choice(candidates)
         print(f"[RANDOM] ✅ Знайдено в SQL: {got.title}")

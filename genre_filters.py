@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from database import db, transaction
 from ui_shared import Anime, format_caption, kb_for_anime
+from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 GENRE_MAP: dict[str, str] = {}
 router = Router()
@@ -404,7 +405,7 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
         await c.message.delete()
         sent = await c.message.answer(text, reply_markup=kb)
     else:
-        await c.message.edit_text(text, reply_markup=kb)
+        await safe_edit_text(c.message, text, reply_markup=kb)
         sent = c.message
     
     # Mark that user is in genre menu
@@ -421,11 +422,7 @@ async def cb_genre_page_nav(c: CallbackQuery, callback_data: GenreCB, hikka_clie
     exc = get_excluded_genres(c.from_user.id)
     snapshot = get_genre_snapshot(c.from_user.id)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
-
-    except TelegramBadRequest:
-        await c.answer()
+    await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
 
 @router.callback_query(GenreCB.filter(F.action == "toggle"))
 async def cb_toggle_genre(c: CallbackQuery, callback_data: GenreCB, hikka_client):
@@ -446,11 +443,7 @@ async def cb_toggle_genre(c: CallbackQuery, callback_data: GenreCB, hikka_client
     exc = get_excluded_genres(c.from_user.id)
     snapshot = get_genre_snapshot(c.from_user.id)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
-
-    except TelegramBadRequest:
-        await c.answer()
+    await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
 
 @router.callback_query(GenreCB.filter(F.action == "clear"))
 async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client):
@@ -469,11 +462,7 @@ async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client)
     
     genres = await get_all_genres(hikka_client)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb_genres(included=[], excluded=[], genres=genres, page=page, snapshot_slugs=[]))
-
-    except TelegramBadRequest:
-        await c.answer()
+    await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=[], excluded=[], genres=genres, page=page, snapshot_slugs=[]))
     
     await c.answer("Всі фільтри скинуто! ✨", show_alert=True)
 
@@ -485,7 +474,7 @@ async def cb_genre_back(c: CallbackQuery, start_text: str, kb_start_func):
     exit_genre_menu(c.from_user.id)
     
     await c.answer()
-    await c.message.edit_text(start_text, reply_markup=kb_start_func())
+    await safe_edit_text(c.message, start_text, reply_markup=kb_start_func())
 
 
 @router.callback_query(GenreCB.filter(F.action == "recommend"))
@@ -547,7 +536,7 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             excluded_genres=excluded_gen_slugs  # ✅ single source of truth
         )
     except Exception as e:
-        await c.message.edit_text(f"Не вдалося знайти аніме у жанрах: {', '.join(selected_slugs)}\n\nПомилка: {e}")
+        await safe_edit_text(c.message, f"Не вдалося знайти аніме у жанрах: {', '.join(selected_slugs)}\n\nПомилка: {e}")
         return
 
     cb_id = uuid.uuid4().hex[:12]
@@ -587,7 +576,7 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
                 except Exception as e2:
                     print(f"[FALLBACK] Hikka постер теж не вдався: {e2}")
 
-    await c.message.edit_text(caption, reply_markup=kb)
+    await safe_edit_text(c.message, caption, reply_markup=kb)
 
 
 # ==================== Text-based genre search ====================

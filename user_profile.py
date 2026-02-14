@@ -8,6 +8,7 @@ import json
 from ui_shared import Anime, format_caption, MAX_CAPTION
 from aiogram.types import InputMediaPhoto
 from callbacks import MenuCB
+from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -170,10 +171,7 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     if target.chat.type != "private":
         msg = "👤 Профіль доступний тільки в особистому чаті з ботом."
         if edit:
-            try:
-                await target.edit_text(msg)
-            except Exception:
-                await target.answer(msg)
+            await safe_edit_text(target, msg)
         else:
             await target.answer(msg)
         return
@@ -190,14 +188,14 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     )
 
     if edit:
-        try:
-            if target.content_type == "photo":
-               await target.delete()
-               await target.answer(text, reply_markup=kb_profile())
-            else:
-               await target.edit_text(text, reply_markup=kb_profile())
-        except Exception:
-             await target.answer(text, reply_markup=kb_profile())
+        if target.content_type == "photo":
+            try:
+                await target.delete()
+            except Exception:
+                pass
+            await target.answer(text, reply_markup=kb_profile())
+        else:
+            await safe_edit_text(target, text, reply_markup=kb_profile())
     else:
         await target.answer(text, reply_markup=kb_profile())
 
@@ -290,7 +288,7 @@ def render_like_card(s: dict) -> str:
 async def show_liked(target: Message, user_id: int, idx: int):
     total = get_liked_count(user_id)
     if total <= 0:
-        await target.edit_text(
+        await safe_edit_text(target,
             "❤️ <b>Обрані тайтли</b>\n\nСписок обраних пуст 💔",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
@@ -301,7 +299,7 @@ async def show_liked(target: Message, user_id: int, idx: int):
     idx = max(0, min(idx, total - 1))
     snap = get_liked_snapshot(user_id, idx)
     if not snap:
-        await target.edit_text(
+        await safe_edit_text(target,
             "❤️ <b>Обрані тайтли</b>\n\nНе вдалося завантажити.",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
@@ -309,7 +307,7 @@ async def show_liked(target: Message, user_id: int, idx: int):
         )
         return
 
-    await target.edit_text(render_like_card(snap), reply_markup=kb_likes_view(idx, total))
+    await safe_edit_text(target, render_like_card(snap), reply_markup=kb_likes_view(idx, total))
 
 def kb_likes_watch(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -431,7 +429,7 @@ async def open_likes_viewer(c: CallbackQuery, idx: int):
 async def show_liked_title(target: Message, user_id: int, idx: int) -> None:
     total = get_liked_titles_count(user_id)
     if total <= 0:
-        await target.edit_text(
+        await safe_edit_text(target,
             "❤️ <b>Обрані тайтли</b>\n\nСписок обраних пуст 💔",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
@@ -443,7 +441,7 @@ async def show_liked_title(target: Message, user_id: int, idx: int) -> None:
 
     row = get_liked_title_at(user_id, idx)
     if not row:
-        await target.edit_text(
+        await safe_edit_text(target,
             "❤️ <b>Обрані тайтли</b>\n\nНе вдалося завантажити список.",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
@@ -458,7 +456,7 @@ async def show_liked_title(target: Message, user_id: int, idx: int) -> None:
         f"<code>{html.escape(anime_id)}</code>"
     )
 
-    await target.edit_text(text, reply_markup=kb_likes_pager(idx, total))
+    await safe_edit_text(target, text, reply_markup=kb_likes_pager(idx, total))
 
 
 @router.callback_query(F.data.startswith("prof:unlike:"))
@@ -528,17 +526,9 @@ async def prof_unlike(c: CallbackQuery):
     markup = kb_likes_photo(new_idx, total_after, has_watch=bool(a.watch_links))
 
     if a.poster_url:
-        try:
-            await c.message.edit_media(InputMediaPhoto(media=a.poster_url, caption=caption))
-            await c.message.edit_reply_markup(reply_markup=markup)
-            return
-        except Exception:
-            pass
-
-    try:
-        await c.message.edit_caption(caption=caption, reply_markup=markup)
-    except Exception:
-        await c.answer("Не можу оновити це повідомлення.", show_alert=True)
+        await safe_edit_media(c.message, InputMediaPhoto(media=a.poster_url, caption=caption), reply_markup=markup)
+    else:
+        await safe_edit_text(c.message, caption, reply_markup=markup)
 
 
 @router.callback_query(F.data.startswith("prof:likes_photo:"))
@@ -583,17 +573,9 @@ async def prof_likes_photo_pager(c: CallbackQuery):
     await c.answer()
 
     if a.poster_url:
-        try:
-            await c.message.edit_media(InputMediaPhoto(media=a.poster_url, caption=caption))
-            await c.message.edit_reply_markup(reply_markup=markup)
-            return
-        except Exception:
-            pass
-
-    try:
-        await c.message.edit_caption(caption=caption, reply_markup=markup)
-    except Exception:
-        await c.answer("Не можу оновити це повідомлення.", show_alert=True)
+        await safe_edit_media(c.message, InputMediaPhoto(media=a.poster_url, caption=caption), reply_markup=markup)
+    else:
+        await safe_edit_text(c.message, caption, reply_markup=markup)
 
 @router.callback_query(F.data == "prof:likes_close")
 async def prof_likes_close(c: CallbackQuery):
@@ -640,7 +622,7 @@ async def prof_likes_watch(c: CallbackQuery):
         return
 
     await c.answer()
-    await c.message.edit_reply_markup(
+    await safe_edit_reply_markup(c.message,
         reply_markup=kb_likes_watch(idx, snap["watch_links"])
     )
 
@@ -678,7 +660,7 @@ async def prof_likes_torrents(c: CallbackQuery):
         return
 
     await c.answer()
-    await c.message.edit_reply_markup(
+    await safe_edit_reply_markup(c.message,
         reply_markup=kb_likes_torrents(idx, snap["watch_links"])
     )
 
@@ -703,13 +685,13 @@ async def profile_cmd(m: Message):
 async def prof_clear_menu(c: CallbackQuery):
     await c.answer()
     if c.message:
-        await c.message.edit_reply_markup(reply_markup=kb_profile_clear_menu())
+        await safe_edit_reply_markup(c.message, reply_markup=kb_profile_clear_menu())
 
 @router.callback_query(F.data == "prof:back_to_profile")
 async def prof_back_to_profile(c: CallbackQuery):
     await c.answer()
     if c.message:
-        await c.message.edit_reply_markup(reply_markup=kb_profile())
+        await safe_edit_reply_markup(c.message, reply_markup=kb_profile())
 
 @router.callback_query(F.data == "prof:clear_likes")
 async def prof_clear_likes(c: CallbackQuery):

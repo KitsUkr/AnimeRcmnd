@@ -15,6 +15,7 @@ from aiogram.exceptions import TelegramBadRequest
 from database import db, transaction
 from callbacks import YearCB
 from ui_shared import Anime, format_caption, kb_for_anime
+from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -229,7 +230,7 @@ async def cb_open_year_filter(c: CallbackQuery):
         await c.message.delete()
         await c.message.answer(text, reply_markup=kb)
     else:
-        await c.message.edit_text(text, reply_markup=kb)
+        await safe_edit_text(c.message, text, reply_markup=kb)
 
 
 @router.callback_query(YearCB.filter(F.action == "mode"))
@@ -245,11 +246,7 @@ async def cb_switch_year_mode(c: CallbackQuery, callback_data: YearCB):
     text = get_year_menu_text(year_from, year_to)
     kb = kb_year_filter(year_from, year_to, mode=mode, page=page)
     
-    try:
-        await c.message.edit_text(text, reply_markup=kb)
-    except TelegramBadRequest:
-        pass
-    
+    await safe_edit_text(c.message, text, reply_markup=kb)
     await c.answer()
 
 
@@ -265,11 +262,7 @@ async def cb_year_page(c: CallbackQuery, callback_data: YearCB):
     
     kb = kb_year_filter(year_from, year_to, mode=mode, page=page)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb)
-    except TelegramBadRequest:
-        pass
-    
+    await safe_edit_reply_markup(c.message, reply_markup=kb)
     await c.answer()
 
 
@@ -300,11 +293,7 @@ async def cb_set_year_from(c: CallbackQuery, callback_data: YearCB):
     text = get_year_menu_text(year_from, year_to)
     kb = kb_year_filter(year_from, year_to, mode="from", page=page)
     
-    try:
-        await c.message.edit_text(text, reply_markup=kb)
-    except TelegramBadRequest:
-        pass
-    
+    await safe_edit_text(c.message, text, reply_markup=kb)
     await c.answer()
 
 
@@ -335,11 +324,7 @@ async def cb_set_year_to(c: CallbackQuery, callback_data: YearCB):
     text = get_year_menu_text(year_from, year_to)
     kb = kb_year_filter(year_from, year_to, mode="to", page=page)
     
-    try:
-        await c.message.edit_text(text, reply_markup=kb)
-    except TelegramBadRequest:
-        pass
-    
+    await safe_edit_text(c.message, text, reply_markup=kb)
     await c.answer()
 
 
@@ -353,11 +338,7 @@ async def cb_year_clear(c: CallbackQuery):
     text = get_year_menu_text(None, None)
     kb = kb_year_filter(None, None, mode="from", page=0)
     
-    try:
-        await c.message.edit_text(text, reply_markup=kb)
-    except TelegramBadRequest:
-        pass
-    
+    await safe_edit_text(c.message, text, reply_markup=kb)
     await c.answer("Фільтр років очищено! ✨", show_alert=True)
 
 
@@ -420,7 +401,7 @@ async def cb_year_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             year_to=year_to
         )
     except Exception as e:
-        await c.message.edit_text(f"Не вдалося знайти аніме за вказаними фільтрами.\n\nПомилка: {e}")
+        await safe_edit_text(c.message, f"Не вдалося знайти аніме за вказаними фільтрами.\n\nПомилка: {e}")
         return
     
     cb_id = uuid.uuid4().hex[:12]
@@ -457,4 +438,4 @@ async def cb_year_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
                 except Exception as e2:
                     print(f"[YEARS] Fallback постер теж не вдався: {e2}")
     
-    await c.message.edit_text(caption, reply_markup=kb)
+    await safe_edit_text(c.message, caption, reply_markup=kb)
