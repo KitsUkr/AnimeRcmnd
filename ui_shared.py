@@ -241,7 +241,7 @@ def get_filter_alert_text(
 
 def build_filter_exhausted_message(e) -> str:
     """
-    Формує дружнє повідомлення, коли юзер переглянув все аніме за обраними фільтрами.
+    Формує повідомлення, коли юзер переглянув все аніме за обраними фільтрами.
     e: FilteredAnimeExhaustedError з полями genre_names, content_types, year_from, year_to
     """
     from content_filters import CONTENT_TYPE_MAP
