@@ -24,7 +24,8 @@ from content_filters import router as content_type_router, get_selected_content_
 from year_filters import router as year_router, get_year_from, get_year_to
 from filters_hub import router as filters_hub_router
 from inline_handler import router as inline_router
-from hikka_client import HikkaClient, get_or_refresh_watch_links
+from hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError
+from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
 from callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
 
@@ -140,18 +141,12 @@ def remove_invalid_ua_poster(slug: str) -> None:
         print(f"[POSTER] Помилка видалення UA постера для {slug}: {e}")
 
 
-def get_excluded_ids(user_id: int, limit: int = 2000) -> List[str]:
+def get_excluded_ids(user_id: int) -> List[str]:
     conn = db()
-    seen = conn.execute(SELECT_USER_SEEN_BY_USER, (user_id, limit)).fetchall()
-
-    ids = [r[0] for r in seen]
-    out: List[str] = []
-    s = set()
-    for x in ids:
-        if x not in s:
-            s.add(x)
-            out.append(x)
-    return out
+    seen = conn.execute(
+        "SELECT anime_id FROM user_seen WHERE user_id=%s", (user_id,)
+    ).fetchall()
+    return list({r[0] for r in seen})
 
 
 def get_last_page(user_id: int) -> Optional[int]:
@@ -650,11 +645,11 @@ async def cb_subscribe_continue(callback: CallbackQuery, start_text: str, kb_sta
     await callback.answer()
     # Додаємо reply-клавіатуру після натискання Продовжити
     await callback.message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
-    await callback.message.edit_text(start_text, reply_markup=kb_start_func())
+    await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "back"))
 async def cb_back(callback: CallbackQuery, start_text: str, kb_start_func):
-    await callback.message.edit_text(start_text, reply_markup=kb_start_func())
+    await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "profile"))
 async def cb_profile(callback: CallbackQuery):
@@ -663,14 +658,14 @@ async def cb_profile(callback: CallbackQuery):
 
 @router.callback_query(F.data == "start:back") 
 async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_func):
-    try:
-        if callback.message.photo:
+    if callback.message.photo:
+        try:
             await callback.message.delete()
-            await callback.message.answer(start_text, reply_markup=kb_start_func())
-        else:
-            await callback.message.edit_text(start_text, reply_markup=kb_start_func())
-    except Exception:
+        except Exception:
+            pass
         await callback.message.answer(start_text, reply_markup=kb_start_func())
+    else:
+        await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "random"))
 async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
@@ -730,6 +725,22 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             year_from=year_from,
             year_to=year_to,
         )
+    except AllAnimeSeenError as e:
+        msg = f"Отакої! Ви вже переглянули всі аніме з нашої бази! А це цілих <b>{e.total_count}</b> тайтлів! 🎉\n\n"
+        msg += "<i>Якщо хочете продовжувати користуватися ботом, рекомендуємо очистити історію.</i>"
+        try:
+            if callback.message.content_type == "photo":
+                await callback.message.delete()
+                await callback.message.answer(msg)
+            else:
+                await callback.message.edit_text(msg)
+        except Exception:
+            try:
+                await callback.answer(f"Ви переглянули всі {e.total_count} аніме!", show_alert=True)
+            except:
+                pass
+        return
+
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] cb_random_anime failed for user {user_id}: {e}")
@@ -817,7 +828,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
         await callback.message.delete()
         await callback.message.answer(caption, reply_markup=kb)
     else:
-        await callback.message.edit_text(caption, reply_markup=kb)
+        await safe_edit_text(callback.message, caption, reply_markup=kb)
 
 
 @router.callback_query(AnimeCB.filter(F.action == "watch"))
@@ -837,7 +848,7 @@ async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_func
         return
 
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=kb_watch_links(cb_id, watch_links))
+    await safe_edit_reply_markup(callback.message, reply_markup=kb_watch_links(cb_id, watch_links))
 
 
 @router.callback_query(AnimeCB.filter(F.action == "torrents"))
@@ -865,7 +876,7 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
         return
 
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=kb_torrent_links(cb_id, torrent_links))
+    await safe_edit_reply_markup(callback.message, reply_markup=kb_torrent_links(cb_id, torrent_links))
 
 
 @router.callback_query(AnimeCB.filter(F.action == "back_to_list"))
@@ -879,7 +890,7 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     has_filters = bool(search_genres or excluded_genres)
 
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=kb_for_anime(cb_id, has_filter=has_filters))
+    await safe_edit_reply_markup(callback.message, reply_markup=kb_for_anime(cb_id, has_filter=has_filters))
 
 @router.callback_query(AnimeCB.filter(F.action == "like"))
 async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict):
@@ -1009,10 +1020,7 @@ async def cb_history_pages(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     # Показуємо плитки
     kb = kb_history_pages_tiles(current_page, total)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb)
-    except Exception as e:
-        print(f"[HISTORY] Failed to show page tiles: {e}")
+    await safe_edit_reply_markup(c.message, reply_markup=kb)
 
 
 @router.callback_query(HistoryCB.filter(F.action == "watch"))
@@ -1037,7 +1045,7 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     # Generate back button that returns to history page at specific index
     back_data = HistoryCB(action="page", page=page_idx).pack()
     
-    await c.message.edit_reply_markup(reply_markup=kb_watch_links(cb_id, watch_links, back_data=back_data, history_page=page_idx))
+    await safe_edit_reply_markup(c.message, reply_markup=kb_watch_links(cb_id, watch_links, back_data=back_data, history_page=page_idx))
 
 
 @router.callback_query(HistoryCB.filter(F.action == "torrents"))
@@ -1069,7 +1077,7 @@ async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_fun
     
     # Back to watch menu with history page
     back_data = HistoryCB(action="watch", cb_id=cb_id, page=page_idx).pack()
-    await c.message.edit_reply_markup(reply_markup=kb_torrent_links(cb_id, torrent_links, back_data=back_data))
+    await safe_edit_reply_markup(c.message, reply_markup=kb_torrent_links(cb_id, torrent_links, back_data=back_data))
 
 async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
     user_id = c.from_user.id

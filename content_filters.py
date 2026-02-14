@@ -9,6 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from database import db, transaction
 from callbacks import ContentTypeCB, MenuCB
 from ui_shared import Anime, format_caption, kb_for_anime
+from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -197,7 +198,7 @@ async def cb_open_content_types(c: CallbackQuery):
         await c.message.delete()
         await c.message.answer(text, reply_markup=kb)
     else:
-        await c.message.edit_text(text, reply_markup=kb)
+        await safe_edit_text(c.message, text, reply_markup=kb)
 
 @router.callback_query(ContentTypeCB.filter(F.action == "toggle"))
 async def cb_toggle_content_type(c: CallbackQuery, callback_data: ContentTypeCB):
@@ -213,10 +214,7 @@ async def cb_toggle_content_type(c: CallbackQuery, callback_data: ContentTypeCB)
     inc = get_selected_content_types(c.from_user.id)
     exc = get_excluded_content_types(c.from_user.id)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb_content_types(included=inc, excluded=exc))
-    except TelegramBadRequest:
-        await c.answer()
+    await safe_edit_reply_markup(c.message, reply_markup=kb_content_types(included=inc, excluded=exc))
 
 @router.callback_query(ContentTypeCB.filter(F.action == "clear"))
 async def cb_content_type_clear(c: CallbackQuery):
@@ -228,10 +226,7 @@ async def cb_content_type_clear(c: CallbackQuery):
     from UaAnimeRcmd import reset_filter_alert
     reset_filter_alert(c.from_user.id)
     
-    try:
-        await c.message.edit_reply_markup(reply_markup=kb_content_types(included=[], excluded=[]))
-    except TelegramBadRequest:
-        await c.answer()
+    await safe_edit_reply_markup(c.message, reply_markup=kb_content_types(included=[], excluded=[]))
     
     await c.answer("Всі фільтри скинуто! ✨")
 
@@ -295,7 +290,7 @@ async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: di
         )
     except Exception as e:
         error_msg = f"Не вдалося знайти аніме з такими фільтрами.\n\nПомилка: {e}"
-        await c.message.edit_text(error_msg)
+        await safe_edit_text(c.message, error_msg)
         return
     
     cb_id = uuid.uuid4().hex[:12]
@@ -335,5 +330,5 @@ async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: di
                 except Exception as e2:
                     print(f"[FALLBACK] Hikka постер теж не вдався: {e2}")
     
-    await c.message.edit_text(caption, reply_markup=kb)
+    await safe_edit_text(c.message, caption, reply_markup=kb)
 
