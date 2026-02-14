@@ -18,6 +18,15 @@ class AllAnimeSeenError(Exception):
         self.total_count = total_count
         super().__init__(f"All {total_count} anime have been seen")
 
+class FilteredAnimeExhaustedError(Exception):
+    """Raised when user has seen all anime matching their active filters."""
+    def __init__(self, genre_names=None, content_types=None, year_from=None, year_to=None):
+        self.genre_names = genre_names or []
+        self.content_types = content_types or []
+        self.year_from = year_from
+        self.year_to = year_to
+        super().__init__("All filtered anime have been seen")
+
 # Helper Constants
 META_TOTAL_TRANSLATED = "total_translated_titles"
 META_LAST_LIBRARY_SYNC = "last_library_sync"
@@ -1386,21 +1395,24 @@ class HikkaClient:
                         last_total_pages = await self.get_total_pages(session, body=body)
                 
                 if not fallback_found:
-                    total_pages_msg = f" (доступно сторінок: {last_total_pages})" if last_total_pages else ""
-                    raise RuntimeError(f"Нічого не знайдено навіть по окремих жанрах 😔{total_pages_msg}")
+                    # Конвертуємо slug-и жанрів в назви для повідомлення
+                    genre_display = [get_name_by_slug(g) for g in genres] if genres else []
+                    raise FilteredAnimeExhaustedError(
+                        genre_names=genre_display,
+                        content_types=content_types,
+                        year_from=year_from,
+                        year_to=year_to
+                    )
             
             else:
-                body = self.build_body_random()
-                if genres:
-                    body["genres"] = genres
-                total_pages = await self.get_total_pages(session, body=body)
-                
-                msg = "Не знайшов що порекомендувати після кількох спроб."
-                if total_pages == 1:
-                    msg += " знайдено всього 1 сторінку перекладених тайтлів — можливо, ви вже все бачили?"
-                else:
-                     msg += f" (перевірено сторінок з {total_pages})"
-                raise RuntimeError(msg)
+                # Конвертуємо slug-и жанрів в назви для повідомлення
+                genre_display = [get_name_by_slug(g) for g in genres] if genres else []
+                raise FilteredAnimeExhaustedError(
+                    genre_names=genre_display,
+                    content_types=content_types,
+                    year_from=year_from,
+                    year_to=year_to
+                )
 
             print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")
 

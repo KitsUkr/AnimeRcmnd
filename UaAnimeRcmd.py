@@ -24,7 +24,7 @@ from content_filters import router as content_type_router, get_selected_content_
 from year_filters import router as year_router, get_year_from, get_year_to
 from filters_hub import router as filters_hub_router
 from inline_handler import router as inline_router
-from hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError
+from hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
 from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
 from callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
@@ -725,6 +725,22 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             year_from=year_from,
             year_to=year_to,
         )
+    except FilteredAnimeExhaustedError as e:
+        from ui_shared import build_filter_exhausted_message
+        msg = build_filter_exhausted_message(e)
+        try:
+            if callback.message.content_type == "photo":
+                await callback.message.delete()
+                await callback.message.answer(msg)
+            else:
+                await callback.message.edit_text(msg)
+        except Exception:
+            try:
+                await callback.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
+            except:
+                pass
+        return
+
     except AllAnimeSeenError as e:
         msg = f"Отакої! Ви вже переглянули всі аніме з нашої бази! А це цілих <b>{e.total_count}</b> тайтлів! 🎉\n\n"
         msg += "<i>Якщо хочете продовжувати користуватися ботом, рекомендуємо очистити історію.</i>"

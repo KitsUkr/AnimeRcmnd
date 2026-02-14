@@ -289,6 +289,22 @@ async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: di
             excluded_content_types=excluded_types,
         )
     except Exception as e:
+        from hikka_client import FilteredAnimeExhaustedError
+        if isinstance(e, FilteredAnimeExhaustedError):
+            from ui_shared import build_filter_exhausted_message
+            msg = build_filter_exhausted_message(e)
+            try:
+                if c.message.content_type == "photo":
+                    await c.message.delete()
+                    await c.message.answer(msg)
+                else:
+                    await c.message.edit_text(msg)
+            except Exception:
+                try:
+                    await c.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
+                except:
+                    pass
+            return
         error_msg = f"Не вдалося знайти аніме з такими фільтрами.\n\nПомилка: {e}"
         await safe_edit_text(c.message, error_msg)
         return

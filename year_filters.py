@@ -401,6 +401,22 @@ async def cb_year_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             year_to=year_to
         )
     except Exception as e:
+        from hikka_client import FilteredAnimeExhaustedError
+        if isinstance(e, FilteredAnimeExhaustedError):
+            from ui_shared import build_filter_exhausted_message
+            msg = build_filter_exhausted_message(e)
+            try:
+                if c.message.content_type == "photo":
+                    await c.message.delete()
+                    await c.message.answer(msg)
+                else:
+                    await c.message.edit_text(msg)
+            except Exception:
+                try:
+                    await c.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
+                except:
+                    pass
+            return
         await safe_edit_text(c.message, f"Не вдалося знайти аніме за вказаними фільтрами.\n\nПомилка: {e}")
         return
     

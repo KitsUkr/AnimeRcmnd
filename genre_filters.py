@@ -536,6 +536,22 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             excluded_genres=excluded_gen_slugs  # ✅ single source of truth
         )
     except Exception as e:
+        from hikka_client import FilteredAnimeExhaustedError
+        if isinstance(e, FilteredAnimeExhaustedError):
+            from ui_shared import build_filter_exhausted_message
+            msg = build_filter_exhausted_message(e)
+            try:
+                if c.message.content_type == "photo":
+                    await c.message.delete()
+                    await c.message.answer(msg)
+                else:
+                    await c.message.edit_text(msg)
+            except Exception:
+                try:
+                    await c.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
+                except:
+                    pass
+            return
         await safe_edit_text(c.message, f"Не вдалося знайти аніме у жанрах: {', '.join(selected_slugs)}\n\nПомилка: {e}")
         return
 

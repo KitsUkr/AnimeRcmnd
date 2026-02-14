@@ -237,3 +237,51 @@ def get_filter_alert_text(
         return None
         
     return "\n\n".join(parts)
+
+
+def build_filter_exhausted_message(e) -> str:
+    """
+    Формує дружнє повідомлення, коли юзер переглянув все аніме за обраними фільтрами.
+    e: FilteredAnimeExhaustedError з полями genre_names, content_types, year_from, year_to
+    """
+    from content_filters import CONTENT_TYPE_MAP
+
+    parts = []
+
+    if e.genre_names:
+        genre_str = ", ".join(e.genre_names)
+        if len(e.genre_names) == 1:
+            parts.append(f"в жанрі <b>{genre_str}</b>")
+        else:
+            parts.append(f"у жанрах <b>{genre_str}</b>")
+
+    if e.content_types:
+        type_names = [CONTENT_TYPE_MAP.get(t, t) for t in e.content_types]
+        type_str = ", ".join(type_names)
+        parts.append(f"з типом <b>{type_str}</b>")
+
+    if e.year_from or e.year_to:
+        if e.year_from and e.year_to:
+            parts.append(f"за <b>{e.year_from}–{e.year_to}</b> роки")
+        elif e.year_from:
+            parts.append(f"від <b>{e.year_from}</b> року")
+        else:
+            parts.append(f"до <b>{e.year_to}</b> року")
+
+    if parts:
+        filter_desc = " ".join(parts)
+        msg = (
+            f"🎉 <b>Ого, вітаємо!</b>\n\n"
+            f"Ви вже переглянули все аніме {filter_desc}!\n\n"
+            f"Спробуйте інші фільтри або очистіть поточні — "
+            f"ми обов'язково знайдемо для вас щось нове 😊"
+        )
+    else:
+        msg = (
+            "🎉 <b>Ого, вітаємо!</b>\n\n"
+            "Ви переглянули все аніме за вашими фільтрами!\n\n"
+            "Спробуйте інші фільтри або очистіть поточні — "
+            "ми обов'язково знайдемо для вас щось нове 😊"
+        )
+
+    return msg
