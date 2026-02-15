@@ -246,5 +246,3 @@ async def inline_search(query: InlineQuery):
         cache_time=0,
         is_personal=True  # Персональні результати для debug
     )
-
-
