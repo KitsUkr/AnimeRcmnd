@@ -12,7 +12,6 @@ def _is_edit_error(e: TelegramBadRequest) -> bool:
     return any(phrase in msg for phrase in [
         "message can't be edited",
         "message to edit not found",
-        "message is not modified",
         "message_id_invalid",
         "message can not be edited",
     ])
@@ -23,6 +22,8 @@ async def safe_edit_text(message: Message, text: str, **kwargs):
     try:
         await message.edit_text(text, **kwargs)
     except TelegramBadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return  # текст не змінився — нічого робити
         if _is_edit_error(e):
             try:
                 await message.delete()
