@@ -127,6 +127,35 @@ INSERT_USER_STATE_EXCLUDED_GENRES = """
 """
 
 # =========================
+# Seasons (user_state)
+# =========================
+SELECT_USER_STATE_SEASONS = """
+    SELECT selected_seasons_json FROM user_state 
+    WHERE user_id = %s
+"""
+
+SELECT_USER_STATE_EXCLUDED_SEASONS = """
+    SELECT excluded_seasons_json FROM user_state 
+    WHERE user_id = %s
+"""
+
+INSERT_USER_STATE_SEASONS = """
+    INSERT INTO user_state (user_id, selected_seasons_json, updated_at)
+    VALUES (%s, %s, %s)
+    ON CONFLICT(user_id) DO UPDATE SET
+        selected_seasons_json = EXCLUDED.selected_seasons_json,
+        updated_at = EXCLUDED.updated_at
+"""
+
+INSERT_USER_STATE_EXCLUDED_SEASONS = """
+    INSERT INTO user_state (user_id, excluded_seasons_json, updated_at)
+    VALUES (%s, %s, %s)
+    ON CONFLICT(user_id) DO UPDATE SET
+        excluded_seasons_json = EXCLUDED.excluded_seasons_json,
+        updated_at = EXCLUDED.updated_at
+"""
+
+# =========================
 # cb_map
 # =========================
 INSERT_CB_MAP = """
@@ -151,7 +180,7 @@ SELECT_CB_MAP_BY_ID = """
 SELECT_CB_MAP_FULL = """
     SELECT m.anime_id, l.title, l.poster_url, l.hikka_url,
            l.year, l.score, l.episodes_total, l.genres_json,
-           m.description, l.ua_poster_url, l.content_type
+           m.description, l.ua_poster_url, l.content_type, l.season
     FROM cb_map m
     LEFT JOIN anime_library l ON m.anime_id = l.slug
     WHERE m.cb_id=%s
@@ -210,9 +239,9 @@ SELECT_BOT_USERS_ACTIVE = """
 INSERT_LIBRARY_ITEM = """
     INSERT INTO anime_library(
         slug, title, genres_json, score, year, 
-        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type
+        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(slug) DO UPDATE SET
         title=EXCLUDED.title,
         genres_json=CASE 
@@ -229,15 +258,16 @@ INSERT_LIBRARY_ITEM = """
         hikka_url=EXCLUDED.hikka_url,
         updated_at=EXCLUDED.updated_at,
         ua_poster_url=EXCLUDED.ua_poster_url,
-        content_type=EXCLUDED.content_type
+        content_type=EXCLUDED.content_type,
+        season=EXCLUDED.season
 """
 
 INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE = """
     INSERT INTO anime_library(
         slug, title, genres_json, score, year, 
-        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type
+        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(slug) DO UPDATE SET
         title=EXCLUDED.title,
         genres_json=CASE 
@@ -254,7 +284,8 @@ INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE = """
         hikka_url=EXCLUDED.hikka_url,
         updated_at=EXCLUDED.updated_at,
         ua_poster_url=COALESCE(anime_library.ua_poster_url, EXCLUDED.ua_poster_url),
-        content_type=EXCLUDED.content_type
+        content_type=EXCLUDED.content_type,
+        season=EXCLUDED.season
 """
 
 COUNT_LIBRARY = """

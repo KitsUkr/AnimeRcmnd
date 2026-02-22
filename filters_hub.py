@@ -9,11 +9,12 @@ def kb_filters_hub() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🎭 Жанри", callback_data="start:genres"),
-                InlineKeyboardButton(text="🎬 Тип контенту", callback_data="start:content_types"),
+                InlineKeyboardButton(text="Жанри", callback_data="start:genres"),
+                InlineKeyboardButton(text="Тип контенту", callback_data="start:content_types"),
             ],
             [
-                InlineKeyboardButton(text="📅 Рік", callback_data="start:years"),
+                InlineKeyboardButton(text="Рік", callback_data="start:years"),
+                InlineKeyboardButton(text="Сезон", callback_data="start:seasons"),
             ],
             [
                 InlineKeyboardButton(text="« Назад", callback_data=MenuCB(action="back").pack())

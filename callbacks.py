@@ -34,3 +34,8 @@ class YearCB(CallbackData, prefix="year"):
 
 class AdminCB(CallbackData, prefix="admin"):
     action: str  # refresh_stats, force_sync
+
+class SeasonCB(CallbackData, prefix="season"):
+    action: str  # mode, toggle, clear, recommend
+    slug: str | None = None
+    mode: str | None = None # include, exclude

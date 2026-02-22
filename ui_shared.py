@@ -63,6 +63,7 @@ class Anime:
     watch_links: List[Dict[str, str]]
     ua_poster_url: Optional[str] = None
     content_type: Optional[str] = None  # tv, movie, special, ova, etc.
+    season: Optional[str] = None
 
 MAX_CAPTION = 1024
 
@@ -201,7 +202,9 @@ def get_filter_alert_text(
     genre_names: Dict[str, str] = {},
     type_names: Dict[str, str] = {},
     year_from: Optional[int] = None,
-    year_to: Optional[int] = None
+    year_to: Optional[int] = None,
+    seasons: List[str] = [],
+    season_names: Dict[str, str] = {}
 ) -> Optional[str]:
     parts = []
     
@@ -232,6 +235,11 @@ def get_filter_alert_text(
             parts.append(f"Роки випуску: від {year_from}")
         else:
             parts.append(f"Роки випуску: до {year_to}")
+            
+    if seasons:
+        names = [season_names.get(s, s) for s in seasons]
+        season_list = "– " + ", ".join(names)
+        parts.append(f"Ви обрали сезони для пошуку:\n{season_list}")
         
     if not parts:
         return None
@@ -267,6 +275,14 @@ def build_filter_exhausted_message(e) -> str:
             parts.append(f"від <b>{e.year_from}</b> року")
         else:
             parts.append(f"до <b>{e.year_to}</b> року")
+
+    if hasattr(e, 'seasons') and e.seasons:
+        # Avoid circular imports but get names if possible
+        # We can just check SEASON_MAP directly or fallback to slug
+        from season_filters import SEASON_MAP
+        season_names = [SEASON_MAP.get(s, s) for s in e.seasons]
+        season_str = ", ".join(season_names)
+        parts.append(f"за сезонами <b>{season_str}</b>")
 
     if parts:
         filter_desc = " ".join(parts)
