@@ -20,11 +20,12 @@ class AllAnimeSeenError(Exception):
 
 class FilteredAnimeExhaustedError(Exception):
     """Raised when user has seen all anime matching their active filters."""
-    def __init__(self, genre_names=None, content_types=None, year_from=None, year_to=None):
+    def __init__(self, genre_names=None, content_types=None, year_from=None, year_to=None, seasons=None):
         self.genre_names = genre_names or []
         self.content_types = content_types or []
         self.year_from = year_from
         self.year_to = year_to
+        self.seasons = seasons or []
         super().__init__("All filtered anime have been seen")
 
 # Helper Constants
@@ -277,11 +278,11 @@ class HikkaClient:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
-    def build_body_random(self, media_types: Optional[List[str]] = None) -> Dict[str, Any]:
+    def build_body_random(self, media_types: Optional[List[str]] = None, seasons: Optional[List[str]] = None) -> Dict[str, Any]:
         return {
             "media_type": media_types or [],
             "status": [],
-            "season": [],
+            "season": seasons or [],
             "rating": [],
             "years": [],
             "genres": [],
@@ -371,6 +372,7 @@ class HikkaClient:
             episodes_total = _to_int(it.get("episodes_total"))
             poster_url = it.get("image")
             content_type = it.get("media_type")  # tv, movie, special, ova
+            season = str(it.get("season") or "").strip() or None
 
             # Parse genres from base list
             genres: List[str] = []
@@ -404,6 +406,7 @@ class HikkaClient:
                     hikka_url=hikka_url,
                     watch_links=[],
                     content_type=str(content_type) if content_type else None,
+                    season=season,
                 )
             )
         return items
@@ -694,7 +697,7 @@ class HikkaClient:
                     # Завантажуємо існуючі записи з бази одним запитом
                     placeholders = ','.join('%s' for _ in slugs)
                     existing_rows = conn.execute(
-                        f"SELECT slug, title, genres_json, score, year, episodes_total, poster_url FROM anime_library WHERE slug IN ({placeholders})",
+                        f"SELECT slug, title, genres_json, score, year, episodes_total, poster_url, season FROM anime_library WHERE slug IN ({placeholders})",
                         slugs
                     ).fetchall()
                     
@@ -713,11 +716,11 @@ class HikkaClient:
                             to_insert.append((
                                 anime.slug, anime.title, api_genres,
                                 anime.score, anime.year, anime.episodes_total,
-                                anime.poster_url, anime.hikka_url, now, None, anime.content_type
+                                anime.poster_url, anime.hikka_url, now, None, anime.content_type, anime.season
                             ))
                         else:
                             # Порівнюємо з існуючим записом
-                            db_slug, db_title, db_genres, db_score, db_year, db_episodes, db_poster = db_record
+                            db_slug, db_title, db_genres, db_score, db_year, db_episodes, db_poster, db_season = db_record
                             
                             # Перевірка чи потрібно оновлення
                             needs_update = False
@@ -727,6 +730,7 @@ class HikkaClient:
                             new_year = db_year
                             new_episodes = db_episodes
                             new_poster = db_poster
+                            new_season = db_season
                             
                             # Оновлюємо title якщо змінився
                             if anime.title and anime.title != db_title:
@@ -758,10 +762,15 @@ class HikkaClient:
                                 new_poster = anime.poster_url
                                 needs_update = True
                             
+                            # Оновлюємо season якщо в базі немає або змінився
+                            if anime.season and (not db_season or db_season != anime.season):
+                                new_season = anime.season
+                                needs_update = True
+                            
                             if needs_update:
                                 to_update.append((
                                     new_title, new_genres, new_score, new_year,
-                                    new_episodes, new_poster, now, anime.content_type, anime.slug
+                                    new_episodes, new_poster, now, anime.content_type, new_season, anime.slug
                                 ))
                             else:
                                 skipped += 1
@@ -776,7 +785,7 @@ class HikkaClient:
                             conn.executemany(
                                 """UPDATE anime_library SET 
                                    title=%s, genres_json=%s, score=%s, year=%s, 
-                                   episodes_total=%s, poster_url=%s, updated_at=%s, content_type=%s
+                                   episodes_total=%s, poster_url=%s, updated_at=%s, content_type=%s, season=%s
                                    WHERE slug=%s""",
                                 to_update
                             )
@@ -878,6 +887,7 @@ class HikkaClient:
         excluded_content_types: Optional[List[str]] = None,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
+        seasons: Optional[List[str]] = None,
         tries: int = 12,
     ) -> Tuple[Anime, int]:
         conn = db()
@@ -886,9 +896,9 @@ class HikkaClient:
         count_row = conn.execute(COUNT_LIBRARY).fetchone()
         count = count_row[0] if count_row else 0
         
-        if count < 100:
-            print(f"[RANDOM] ⚠️ Бібліотека порожня ({count} items), використовую HTTP-метод")
-            return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, tries)
+        if count < 100 or seasons:
+            print(f"[RANDOM] ⚠️ Бібліотека порожня або є фільтр по сезонах, використовую HTTP-метод")
+            return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
         
         # 2. Якщо є фільтри по жанрах - перевіряємо, чи достатньо жанрів у базі
         if genres or excluded_genres:
@@ -899,14 +909,14 @@ class HikkaClient:
             
             if genres_count < 100:  # Мало даних для фільтрації
                 print(f"[RANDOM] 🔄 Жанрів у базі мало ({genres_count}), використовую HTTP API")
-                return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, tries)
+                return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
             else:
                 print(f"[RANDOM] ⚡ Жанрів у базі достатньо ({genres_count}), пробую SQL пошук")
         
         # 3. SQL Пошук
         print(f"[RANDOM] ⚡ Шукаю в локальній бібліотеці (Total: {count})")
         
-        query = "SELECT slug, title, genres_json, score, year, episodes_total, poster_url, hikka_url, ua_poster_url, content_type FROM anime_library"
+        query = "SELECT slug, title, genres_json, score, year, episodes_total, poster_url, hikka_url, ua_poster_url, content_type, season FROM anime_library"
         params = []
         conditions = []
         
@@ -934,7 +944,7 @@ class HikkaClient:
         ex_set = set(exclude_ids)
         
         for r in rows:
-            slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype = r
+            slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype, season = r
             if slug in ex_set:
                 continue
             
@@ -985,7 +995,7 @@ class HikkaClient:
                 year=yr, score=sc, genres=g_list,
                 episodes_total=ep, poster_url=poster,
                 hikka_url=h_url, description=None, watch_links=[],
-                ua_poster_url=ua_poster, content_type=ctype
+                ua_poster_url=ua_poster, content_type=ctype, season=season
             ))
             
         if not candidates:
@@ -1002,7 +1012,7 @@ class HikkaClient:
                     
                     # Пошук по одному жанру
                     for r in rows:
-                        slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype = r
+                        slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype, season = r
                         if slug in ex_set:
                             continue
                         
@@ -1045,7 +1055,7 @@ class HikkaClient:
                             year=yr, score=sc, genres=g_list,
                             episodes_total=ep, poster_url=poster,
                             hikka_url=h_url, description=None, watch_links=[],
-                            ua_poster_url=ua_poster, content_type=ctype
+                            ua_poster_url=ua_poster, content_type=ctype, season=season
                         ))
                     
                     if candidates:
@@ -1054,9 +1064,9 @@ class HikkaClient:
             
             # Якщо і Smart Fallback не допоміг - HTTP
             if not candidates:
-                if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to:
+                if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to or seasons:
                     print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
-                    return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, tries)
+                    return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
                 else:
                     raise AllAnimeSeenError(count)
             
@@ -1074,6 +1084,18 @@ class HikkaClient:
         # Перевіряємо чи є жанри в anime_library (для lazy loading)
         library_has_genres = self._check_library_has_genres(got.slug)
         library_record_exists = self._library_record_exists(got.slug)
+        
+        # Підтягуємо ua_poster_url з anime_library якщо немає
+        if not got.ua_poster_url and library_record_exists:
+            try:
+                conn = db()
+                row = conn.execute(
+                    "SELECT ua_poster_url FROM anime_library WHERE slug=%s", (got.slug,)
+                ).fetchone()
+                if row and row[0]:
+                    got.ua_poster_url = row[0]
+            except Exception:
+                pass
         
         # Кеш тепер зберігає тільки опис і лінки (не жанри)
         cached = get_cached_details(got.slug)
@@ -1167,7 +1189,8 @@ class HikkaClient:
                             anime.hikka_url,
                             now,
                             anime.ua_poster_url,
-                            anime.content_type
+                            anime.content_type,
+                            anime.season
                         )
                     )
                     print(f"[LAZY] ✅ Створено запис в library для {anime.slug}: '{anime.title}'")
@@ -1282,6 +1305,7 @@ class HikkaClient:
         excluded_content_types: Optional[List[str]] = None,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
+        seasons: Optional[List[str]] = None,
         tries: int = 12,
     ) -> Tuple[Anime, int]:
         """Старий метод пошуку через HTTP (збережений як фолбек)"""
@@ -1295,7 +1319,7 @@ class HikkaClient:
             attempt_tries: int
         ) -> Optional[Tuple[Anime, int]]:
             
-            body = self.build_body_random(media_types=content_types)
+            body = self.build_body_random(media_types=content_types, seasons=seasons)
             if search_genres:
                 body["genres"] = search_genres
                 print(f"[RANDOM] 🔍 Пошук за жанрами: {', '.join(search_genres)}")
@@ -1401,7 +1425,8 @@ class HikkaClient:
                         genre_names=genre_display,
                         content_types=content_types,
                         year_from=year_from,
-                        year_to=year_to
+                        year_to=year_to,
+                        seasons=seasons
                     )
             
             else:
@@ -1411,7 +1436,8 @@ class HikkaClient:
                     genre_names=genre_display,
                     content_types=content_types,
                     year_from=year_from,
-                    year_to=year_to
+                    year_to=year_to,
+                    seasons=seasons
                 )
 
             print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")
