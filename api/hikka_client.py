@@ -20,12 +20,13 @@ class AllAnimeSeenError(Exception):
 
 class FilteredAnimeExhaustedError(Exception):
     """Raised when user has seen all anime matching their active filters."""
-    def __init__(self, genre_names=None, content_types=None, year_from=None, year_to=None, seasons=None):
+    def __init__(self, genre_names=None, content_types=None, year_from=None, year_to=None, seasons=None, score_min=None):
         self.genre_names = genre_names or []
         self.content_types = content_types or []
         self.year_from = year_from
         self.year_to = year_to
         self.seasons = seasons or []
+        self.score_min = score_min
         super().__init__("All filtered anime have been seen")
 
 # Helper Constants
@@ -888,6 +889,7 @@ class HikkaClient:
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
         seasons: Optional[List[str]] = None,
+        score_min: Optional[float] = None,
         tries: int = 12,
     ) -> Tuple[Anime, int]:
         conn = db()
@@ -898,7 +900,7 @@ class HikkaClient:
         
         if count < 100 or seasons:
             print(f"[RANDOM] ⚠️ Бібліотека порожня або є фільтр по сезонах, використовую HTTP-метод")
-            return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
+            return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
         
         # 2. Якщо є фільтри по жанрах - перевіряємо, чи достатньо жанрів у базі
         if genres or excluded_genres:
@@ -909,7 +911,7 @@ class HikkaClient:
             
             if genres_count < 100:  # Мало даних для фільтрації
                 print(f"[RANDOM] 🔄 Жанрів у базі мало ({genres_count}), використовую HTTP API")
-                return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
+                return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
             else:
                 print(f"[RANDOM] ⚡ Жанрів у базі достатньо ({genres_count}), пробую SQL пошук")
         
@@ -990,6 +992,10 @@ class HikkaClient:
             if sc is None or sc <= 0:
                 continue
 
+            # Фільтр по мінімальному рейтингу
+            if score_min is not None and (sc is None or sc < score_min):
+                continue
+
             candidates.append(Anime(
                 id=slug, slug=slug, title=title,
                 year=yr, score=sc, genres=g_list,
@@ -1049,6 +1055,10 @@ class HikkaClient:
                         # Фільтр: виключаємо аніме з рейтингом 0 або NULL
                         if sc is None or sc <= 0:
                             continue
+
+                        # Фільтр по мінімальному рейтингу (Smart Fallback)
+                        if score_min is not None and (sc is None or sc < score_min):
+                            continue
                         
                         candidates.append(Anime(
                             id=slug, slug=slug, title=title,
@@ -1064,9 +1074,9 @@ class HikkaClient:
             
             # Якщо і Smart Fallback не допоміг - HTTP
             if not candidates:
-                if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to or seasons:
+                if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to or seasons or score_min is not None:
                     print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
-                    return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, tries)
+                    return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
                 else:
                     raise AllAnimeSeenError(count)
             
@@ -1306,6 +1316,7 @@ class HikkaClient:
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
         seasons: Optional[List[str]] = None,
+        score_min: Optional[float] = None,
         tries: int = 12,
     ) -> Tuple[Anime, int]:
         """Старий метод пошуку через HTTP (збережений як фолбек)"""
@@ -1380,6 +1391,10 @@ class HikkaClient:
                     if candidates:
                         candidates = [c for c in candidates if c.score is not None and c.score > 0]
 
+                    # Filter by minimum score
+                    if candidates and score_min is not None:
+                        candidates = [c for c in candidates if c.score is not None and c.score >= score_min]
+
                     if candidates:
                         return random.choice(candidates), page
                 except Exception as e:
@@ -1426,7 +1441,8 @@ class HikkaClient:
                         content_types=content_types,
                         year_from=year_from,
                         year_to=year_to,
-                        seasons=seasons
+                        seasons=seasons,
+                        score_min=score_min,
                     )
             
             else:
@@ -1437,7 +1453,8 @@ class HikkaClient:
                     content_types=content_types,
                     year_from=year_from,
                     year_to=year_to,
-                    seasons=seasons
+                    seasons=seasons,
+                    score_min=score_min,
                 )
 
             print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")

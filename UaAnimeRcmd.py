@@ -23,6 +23,7 @@ from handlers.filters.genre import router as genre_router, get_selected_genres, 
 from handlers.filters.content import router as content_type_router, get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
 from handlers.filters.year import router as year_router, get_year_from, get_year_to
 from handlers.filters.season import router as season_router, get_selected_seasons, SEASON_MAP
+from handlers.filters.rating import router as rating_router, get_rating_min
 from handlers.filters.hub import router as filters_hub_router
 from handlers.inline_handler import router as inline_router
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
@@ -55,6 +56,7 @@ def init_db() -> None:
         try:
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS selected_seasons_json text;")
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS excluded_seasons_json text;")
+            conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS rating_min real;")
             conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS season text;")
             conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS season text;")
         except Exception as e:
@@ -688,11 +690,12 @@ async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: Hikka
     year_from = get_year_from(user_id)
     year_to = get_year_to(user_id)
     seasons = get_selected_seasons(user_id)
+    rating_min = get_rating_min(user_id)
 
     has_filters = bool(
         search_genres or excluded_genres
         or selected_content_types or excluded_content_types
-        or year_from or year_to or seasons
+        or year_from or year_to or seasons or rating_min is not None
     )
     if not has_filters:
         await callback.answer("Перед початком оберіть хоча б один фільтр!", show_alert=True)
@@ -721,12 +724,13 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
     year_from = get_year_from(user_id)
     year_to = get_year_to(user_id)
     seasons = get_selected_seasons(user_id)
+    rating_min = get_rating_min(user_id)
     
     # Ensure genre map is loaded for SQL search (names)
     await get_all_genres(hikka_client)
     search_genre_names = [get_name_by_slug(s) for s in search_genres]
 
-    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons)
+    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons or rating_min is not None)
     
     # Filter alert logic
     if has_filters and not get_filter_alert_shown(user_id):
@@ -742,7 +746,8 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             year_from=year_from,
             year_to=year_to,
             seasons=seasons,
-            season_names=SEASON_MAP
+            season_names=SEASON_MAP,
+            rating_min=rating_min,
         )
         if alert_text:
             await callback.answer(alert_text, show_alert=True)
@@ -761,6 +766,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             year_from=year_from,
             year_to=year_to,
             seasons=seasons,
+            score_min=rating_min,
         )
     except FilteredAnimeExhaustedError as e:
         from utils.ui_shared import build_filter_exhausted_message
@@ -827,7 +833,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
     anime_cache[cb_id] = anime
 
     # Presentation Logic
-    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons)
+    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons or rating_min is not None)
     caption_limit = 960 if has_filters else 1024
     
     caption = format_caption(anime, max_length=caption_limit)
@@ -1328,6 +1334,7 @@ async def main() -> None:
     dp.include_router(content_type_router)
     dp.include_router(year_router)
     dp.include_router(season_router)
+    dp.include_router(rating_router)
     dp.include_router(filters_hub_router)
     dp.include_router(inline_router)
     print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")

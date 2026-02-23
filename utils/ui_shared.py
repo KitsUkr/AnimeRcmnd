@@ -204,7 +204,8 @@ def get_filter_alert_text(
     year_from: Optional[int] = None,
     year_to: Optional[int] = None,
     seasons: List[str] = [],
-    season_names: Dict[str, str] = {}
+    season_names: Dict[str, str] = {},
+    rating_min: Optional[float] = None,
 ) -> Optional[str]:
     parts = []
     
@@ -240,6 +241,9 @@ def get_filter_alert_text(
         names = [season_names.get(s, s) for s in seasons]
         season_list = "– " + ", ".join(names)
         parts.append(f"Ви обрали сезони для пошуку:\n{season_list}")
+
+    if rating_min is not None:
+        parts.append(f"Мінімальний рейтинг: від {rating_min}")
         
     if not parts:
         return None
@@ -283,6 +287,9 @@ def build_filter_exhausted_message(e) -> str:
         season_names = [SEASON_MAP.get(s, s) for s in e.seasons]
         season_str = ", ".join(season_names)
         parts.append(f"за сезонами <b>{season_str}</b>")
+
+    if hasattr(e, 'score_min') and e.score_min is not None:
+        parts.append(f"з рейтингом від <b>{e.score_min}</b>")
 
     if parts:
         filter_desc = " ".join(parts)

@@ -39,3 +39,7 @@ class SeasonCB(CallbackData, prefix="season"):
     action: str  # mode, toggle, clear, recommend
     slug: str | None = None
     mode: str | None = None # include, exclude
+
+class RatingCB(CallbackData, prefix="rating"):
+    action: str  # set, clear, recommend
+    rating: float | None = None

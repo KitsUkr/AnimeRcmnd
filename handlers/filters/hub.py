@@ -17,6 +17,9 @@ def kb_filters_hub() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Сезон", callback_data="start:seasons"),
             ],
             [
+                InlineKeyboardButton(text="Рейтинг", callback_data="start:rating"),
+            ],
+            [
                 InlineKeyboardButton(text="🎲 Пошук", callback_data=MenuCB(action="recommend").pack()),
             ],
             [
