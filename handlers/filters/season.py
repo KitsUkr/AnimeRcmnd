@@ -91,7 +91,6 @@ def kb_season_filter(included: List[str]) -> InlineKeyboardMarkup:
     # Дії
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="🗑️ Очистити", callback_data=SeasonCB(action="clear").pack()),
-        InlineKeyboardButton(text="⬇️ Рекомендувати", callback_data=SeasonCB(action="recommend").pack()),
     ])
     
     kb.inline_keyboard.append([

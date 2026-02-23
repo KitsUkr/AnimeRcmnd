@@ -1,4 +1,4 @@
-﻿import traceback
+import traceback
 from urllib.parse import unquote_plus
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
 import asyncio
@@ -676,6 +676,29 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
         await callback.message.answer(start_text, reply_markup=kb_start_func())
     else:
         await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
+
+@router.callback_query(MenuCB.filter(F.action == "recommend"))
+async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
+    """Рекомендувати з хабу фільтрів — тільки якщо є хоча б один активний фільтр."""
+    user_id = callback.from_user.id
+    search_genres = get_selected_genres(user_id)
+    excluded_genres = get_excluded_genres(user_id)
+    selected_content_types = get_selected_content_types(user_id)
+    excluded_content_types = get_excluded_content_types(user_id)
+    year_from = get_year_from(user_id)
+    year_to = get_year_to(user_id)
+    seasons = get_selected_seasons(user_id)
+
+    has_filters = bool(
+        search_genres or excluded_genres
+        or selected_content_types or excluded_content_types
+        or year_from or year_to or seasons
+    )
+    if not has_filters:
+        await callback.answer("Перед початком оберіть хоча б один фільтр!", show_alert=True)
+        return
+    await cb_random_anime(callback, hikka_client, db_funcs)
+
 
 @router.callback_query(MenuCB.filter(F.action == "random"))
 async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):

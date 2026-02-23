@@ -1,4 +1,4 @@
-﻿"""
+"""
 Year Filter Module - фільтр аніме по рокам випуску.
 Дозволяє вибрати діапазон років (від/до) для пошуку.
 """
@@ -184,7 +184,6 @@ def kb_year_filter(year_from: Optional[int], year_to: Optional[int], mode: str =
     # Дії
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="🗑️ Очистити", callback_data=YearCB(action="clear").pack()),
-        InlineKeyboardButton(text="⬇️ Рекомендувати", callback_data=YearCB(action="recommend").pack()),
     ])
     
     kb.inline_keyboard.append([

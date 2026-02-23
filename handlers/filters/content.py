@@ -167,8 +167,7 @@ def kb_content_types(included: List[str], excluded: List[str]) -> InlineKeyboard
     
     # Кнопки дій
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити все", callback_data=ContentTypeCB(action="clear").pack()),
-        InlineKeyboardButton(text="⬇️ Рекомендувати", callback_data=ContentTypeCB(action="recommend").pack()),
+        InlineKeyboardButton(text="🗑️ Очистити", callback_data=ContentTypeCB(action="clear").pack()),
     ])
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="« Назад", callback_data="start:filters"),

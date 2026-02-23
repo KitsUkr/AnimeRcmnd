@@ -1,4 +1,4 @@
-﻿import json
+import json
 import uuid
 import time
 import aiohttp
@@ -346,8 +346,7 @@ def kb_genres(included: List[str], excluded: List[str], genres: List[str], page:
 
     # Actions
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити все", callback_data=GenreCB(action="clear", mode="unified", page=page).pack()),
-        InlineKeyboardButton(text="⬇️ Рекомендувати", callback_data=GenreCB(action="recommend").pack()), 
+        InlineKeyboardButton(text="🗑️ Очистити", callback_data=GenreCB(action="clear", mode="unified", page=page).pack()),
     ])
 
     kb.inline_keyboard.append([
