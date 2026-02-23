@@ -4,9 +4,9 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from database import db
-from callbacks import AdminCB
-from safe_edit import safe_edit_text
+from database.connection import db
+from utils.callbacks import AdminCB
+from utils.safe_edit import safe_edit_text
 
 router = Router()
 

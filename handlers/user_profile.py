@@ -3,12 +3,12 @@ import time
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from database import db, transaction
+from database.connection import db, transaction
 import json
-from ui_shared import Anime, format_caption, MAX_CAPTION
+from utils.ui_shared import Anime, format_caption, MAX_CAPTION
 from aiogram.types import InputMediaPhoto
-from callbacks import MenuCB
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from utils.callbacks import MenuCB
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -262,7 +262,7 @@ def kb_likes_view(idx: int, total: int) -> InlineKeyboardMarkup:
     return kb
 
 def render_like_card(s: dict) -> str:
-    from content_filters import get_name_by_slug
+    from handlers.filters.content import get_name_by_slug
     year = f" ({s['year']})" if s.get("year") else ""
     score = f"⭐ <b>{s['score']:.1f}</b>" if isinstance(s.get("score"), float) else ""
     eps = f" · <b>{s['episodes_total']}</b> еп." if s.get("episodes_total") else ""

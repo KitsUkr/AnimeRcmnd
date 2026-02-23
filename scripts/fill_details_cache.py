@@ -9,7 +9,7 @@ import asyncio
 import json
 import time
 import re
-from database import db, transaction
+from database.connection import db, transaction
 
 # Константи
 HIKKA_BASE_URL = "https://api.hikka.io"  # Правильний API URL

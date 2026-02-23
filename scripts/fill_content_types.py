@@ -6,7 +6,7 @@
 import aiohttp
 import asyncio
 import time
-from database import db, transaction
+from database.connection import db, transaction
 
 
 HIKKA_API_BASE = "https://api.hikka.io"

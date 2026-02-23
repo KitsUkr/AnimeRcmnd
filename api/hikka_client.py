@@ -6,10 +6,10 @@ import time
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote_plus, quote
-from database import db, transaction
-from sql_queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES
-from ui_shared import Anime
-from genre_filters import get_name_by_slug, get_slug_by_name
+from database.connection import db, transaction
+from database.queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES
+from utils.ui_shared import Anime
+from handlers.filters.genre import get_name_by_slug, get_slug_by_name
 
 
 class AllAnimeSeenError(Exception):
@@ -658,7 +658,7 @@ class HikkaClient:
                     meta_set(META_AVAILABLE_GENRES, genres_json)
                     
                     # Синхронізуємо GENRE_MAP у пам'яті
-                    from genre_filters import sync_genre_mapping
+                    from handlers.filters.genre import sync_genre_mapping
                     sync_genre_mapping(genres_data)
                     
                     print(f"[LIBRARY] ✅ Жанри синхронізовано: {len(genres_data)} записів")
