@@ -134,7 +134,7 @@ def cut_html_to_visible_limit(html_text: str, limit: int) -> str:
     return "".join(result)
 
 def format_caption(a: Anime, max_length: int = MAX_CAPTION) -> str:
-    from content_filters import get_name_by_slug
+    from handlers.filters.content import get_name_by_slug
     year = f" ({a.year})" if a.year else ""
     score = f"⭐ <b>{a.score:.1f}</b>" if isinstance(a.score, float) else ""
     eps = f" • <b>{a.episodes_total}</b> еп." if a.episodes_total else ""
@@ -176,7 +176,7 @@ def format_caption(a: Anime, max_length: int = MAX_CAPTION) -> str:
     return base + link_line
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from callbacks import AnimeCB, MenuCB
+from utils.callbacks import AnimeCB, MenuCB
 
 def kb_for_anime(cb_id: str, has_filter: bool = False) -> InlineKeyboardMarkup:
     rows = [
@@ -252,7 +252,7 @@ def build_filter_exhausted_message(e) -> str:
     Формує повідомлення, коли юзер переглянув все аніме за обраними фільтрами.
     e: FilteredAnimeExhaustedError з полями genre_names, content_types, year_from, year_to
     """
-    from content_filters import CONTENT_TYPE_MAP
+    from handlers.filters.content import CONTENT_TYPE_MAP
 
     parts = []
 
@@ -279,7 +279,7 @@ def build_filter_exhausted_message(e) -> str:
     if hasattr(e, 'seasons') and e.seasons:
         # Avoid circular imports but get names if possible
         # We can just check SEASON_MAP directly or fallback to slug
-        from season_filters import SEASON_MAP
+        from handlers.filters.season import SEASON_MAP
         season_names = [SEASON_MAP.get(s, s) for s in e.seasons]
         season_str = ", ".join(season_names)
         parts.append(f"за сезонами <b>{season_str}</b>")

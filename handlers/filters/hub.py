@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from callbacks import MenuCB
-from safe_edit import safe_edit_text
+from utils.callbacks import MenuCB
+from utils.safe_edit import safe_edit_text
 
 router = Router()
 

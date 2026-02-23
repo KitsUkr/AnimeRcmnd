@@ -6,10 +6,10 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
 
-from database import db, transaction
-from callbacks import ContentTypeCB, MenuCB
-from ui_shared import Anime, format_caption, kb_for_anime
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from database.connection import db, transaction
+from utils.callbacks import ContentTypeCB, MenuCB
+from utils.ui_shared import Anime, format_caption, kb_for_anime
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -234,14 +234,14 @@ async def cb_content_type_clear(c: CallbackQuery):
 async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     """Рекомендувати аніме з урахуванням фільтрів по типах"""
     import uuid
-    from genre_filters import get_selected_genres, get_excluded_genres, get_name_by_slug as get_genre_name
+    from handlers.filters.genre import get_selected_genres, get_excluded_genres, get_name_by_slug as get_genre_name
     
     user_id = c.from_user.id
     selected_types = get_selected_content_types(user_id)
     excluded_types = get_excluded_content_types(user_id)
     
-    from ui_shared import get_filter_alert_text
-    from genre_filters import get_selected_genres, get_excluded_genres, GENRE_MAP
+    from utils.ui_shared import get_filter_alert_text
+    from handlers.filters.genre import get_selected_genres, get_excluded_genres, GENRE_MAP
     
     selected_genres = get_selected_genres(user_id)
     excluded_genres = get_excluded_genres(user_id)
@@ -274,7 +274,7 @@ async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: di
     last_page = get_last(user_id)
     
     # Конвертуємо slugs в names для пошуку
-    from genre_filters import get_all_genres
+    from handlers.filters.genre import get_all_genres
     await get_all_genres(hikka_client)
     selected_genre_names = [get_genre_name(s) for s in selected_genres]
     
@@ -289,9 +289,9 @@ async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: di
             excluded_content_types=excluded_types,
         )
     except Exception as e:
-        from hikka_client import FilteredAnimeExhaustedError
+        from api.hikka_client import FilteredAnimeExhaustedError
         if isinstance(e, FilteredAnimeExhaustedError):
-            from ui_shared import build_filter_exhausted_message
+            from utils.ui_shared import build_filter_exhausted_message
             msg = build_filter_exhausted_message(e)
             try:
                 if c.message.content_type == "photo":

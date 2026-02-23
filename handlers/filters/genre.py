@@ -3,15 +3,15 @@ import uuid
 import time
 import aiohttp
 from typing import List, Dict
-from callbacks import GenreCB, MenuCB
+from utils.callbacks import GenreCB, MenuCB
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from aiogram.exceptions import TelegramBadRequest
 
-from database import db, transaction
-from ui_shared import Anime, format_caption, kb_for_anime
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from database.connection import db, transaction
+from utils.ui_shared import Anime, format_caption, kb_for_anime
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 GENRE_MAP: dict[str, str] = {}
 router = Router()
@@ -45,7 +45,7 @@ def sync_genre_mapping(genres_data: list = None) -> None:
     
     if genres_data is None:
         # Завантажуємо з bot_meta
-        from hikka_client import meta_get, META_AVAILABLE_GENRES
+        from api.hikka_client import meta_get, META_AVAILABLE_GENRES
         cached = meta_get(META_AVAILABLE_GENRES)
         if not cached:
             print("[GENRES] ⚠️ Дані жанрів не знайдені в bot_meta")
@@ -171,7 +171,7 @@ async def get_all_genres(hikka_client) -> List[str]:
     2. Якщо bot_meta пуста (перший запуск): fallback-запрос до API
     3. Синхронізує GENRE_MAP для меню
     """
-    from hikka_client import meta_get, META_AVAILABLE_GENRES
+    from api.hikka_client import meta_get, META_AVAILABLE_GENRES
     
     # Приоритет 1: Читаємо з bot_meta
     cached = meta_get(META_AVAILABLE_GENRES)
@@ -200,7 +200,7 @@ async def get_all_genres(hikka_client) -> List[str]:
     
     if genres_data:
         # Зберігаємо в bot_meta для кешування
-        from hikka_client import meta_set, META_GENRES_VERSION, GENRES_VERSION
+        from api.hikka_client import meta_set, META_GENRES_VERSION, GENRES_VERSION
         genres_json = json.dumps(genres_data, ensure_ascii=False)
         meta_set(META_AVAILABLE_GENRES, genres_json)
         meta_set(META_GENRES_VERSION, GENRES_VERSION)
@@ -494,8 +494,8 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     # Included
     # names_inc are loaded earlier
 
-    from ui_shared import get_filter_alert_text
-    from content_filters import get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
+    from utils.ui_shared import get_filter_alert_text
+    from handlers.filters.content import get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
 
     types_inc = get_selected_content_types(user_id)
     types_exc = get_excluded_content_types(user_id)
@@ -536,9 +536,9 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             excluded_genres=excluded_gen_slugs  # ✅ single source of truth
         )
     except Exception as e:
-        from hikka_client import FilteredAnimeExhaustedError
+        from api.hikka_client import FilteredAnimeExhaustedError
         if isinstance(e, FilteredAnimeExhaustedError):
-            from ui_shared import build_filter_exhausted_message
+            from utils.ui_shared import build_filter_exhausted_message
             msg = build_filter_exhausted_message(e)
             try:
                 if c.message.content_type == "photo":

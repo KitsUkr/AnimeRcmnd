@@ -18,8 +18,8 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hikka_client import META_AVAILABLE_GENRES
-from database import db, transaction, meta_get, meta_set
+from api.hikka_client import META_AVAILABLE_GENRES
+from database.connection import db, transaction, meta_get, meta_set
 
 
 def check_migration_status() -> dict:

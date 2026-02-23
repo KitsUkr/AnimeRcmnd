@@ -8,11 +8,11 @@ from typing import List
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from database import db, transaction
-from callbacks import SeasonCB
-from ui_shared import Anime, format_caption, kb_for_anime
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
-from sql_queries import (
+from database.connection import db, transaction
+from utils.callbacks import SeasonCB
+from utils.ui_shared import Anime, format_caption, kb_for_anime
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from database.queries import (
     SELECT_USER_STATE_SEASONS,
     INSERT_USER_STATE_SEASONS,
     SELECT_USER_STATE_EXCLUDED_SEASONS,

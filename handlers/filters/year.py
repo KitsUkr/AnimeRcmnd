@@ -12,10 +12,10 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from aiogram.exceptions import TelegramBadRequest
 
-from database import db, transaction
-from callbacks import YearCB
-from ui_shared import Anime, format_caption, kb_for_anime
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from database.connection import db, transaction
+from utils.callbacks import YearCB
+from utils.ui_shared import Anime, format_caption, kb_for_anime
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 
 router = Router()
 
@@ -352,9 +352,9 @@ async def cb_year_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     
     # Можна рекомендувати навіть без вибраних років (без фільтра)
     
-    from ui_shared import get_filter_alert_text
-    from genre_filters import get_selected_genres, get_excluded_genres, GENRE_MAP, get_name_by_slug
-    from content_filters import get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
+    from utils.ui_shared import get_filter_alert_text
+    from handlers.filters.genre import get_selected_genres, get_excluded_genres, GENRE_MAP, get_name_by_slug
+    from handlers.filters.content import get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
     
     genres_inc = get_selected_genres(user_id)
     genres_exc = get_excluded_genres(user_id)
@@ -401,9 +401,9 @@ async def cb_year_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
             year_to=year_to
         )
     except Exception as e:
-        from hikka_client import FilteredAnimeExhaustedError
+        from api.hikka_client import FilteredAnimeExhaustedError
         if isinstance(e, FilteredAnimeExhaustedError):
-            from ui_shared import build_filter_exhausted_message
+            from utils.ui_shared import build_filter_exhausted_message
             msg = build_filter_exhausted_message(e)
             try:
                 if c.message.content_type == "photo":

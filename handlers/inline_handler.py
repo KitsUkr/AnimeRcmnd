@@ -16,8 +16,8 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
-from database import db
-from ui_shared import Anime, format_caption, MAX_CAPTION
+from database.connection import db
+from utils.ui_shared import Anime, format_caption, MAX_CAPTION
 
 router = Router()
 

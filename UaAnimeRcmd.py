@@ -1,34 +1,34 @@
 ﻿import traceback
 from urllib.parse import unquote_plus
-from ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
+from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
 import asyncio
 import json
-from user_profile import router as profile_router
+from handlers.user_profile import router as profile_router
 import os
 import time
 import uuid
-from database import db, transaction
-from sql_queries import (
+from database.connection import db, transaction
+from database.queries import (
     INSERT_USER_SEEN, SELECT_USER_SEEN_BY_USER, DELETE_USER_SEEN_BY_USER,
     INSERT_USER_FEEDBACK, INSERT_USER_STATE_LAST_PAGE, SELECT_USER_STATE_LAST_PAGE,
     INSERT_CB_MAP, SELECT_CB_MAP_BY_ID, SELECT_CB_MAP_FULL, UPDATE_USER_STATE_CLEAR_PAGE
 )
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
-from user_profile import send_profile
-from admin_panel import router as admin_router, init_admin_db, touch_user, is_admin
+from handlers.user_profile import send_profile
+from handlers.admin_panel import router as admin_router, init_admin_db, touch_user, is_admin
 
-from genre_filters import router as genre_router, get_selected_genres, get_name_by_slug, get_all_genres, get_excluded_genres, GENRE_MAP
+from handlers.filters.genre import router as genre_router, get_selected_genres, get_name_by_slug, get_all_genres, get_excluded_genres, GENRE_MAP
 
 
-from content_filters import router as content_type_router, get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
-from year_filters import router as year_router, get_year_from, get_year_to
-from season_filters import router as season_router, get_selected_seasons, SEASON_MAP
-from filters_hub import router as filters_hub_router
-from inline_handler import router as inline_router
-from hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
-from safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from handlers.filters.content import router as content_type_router, get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
+from handlers.filters.year import router as year_router, get_year_from, get_year_to
+from handlers.filters.season import router as season_router, get_selected_seasons, SEASON_MAP
+from handlers.filters.hub import router as filters_hub_router
+from handlers.inline_handler import router as inline_router
+from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
+from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
-from callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
+from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -740,7 +740,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             seasons=seasons,
         )
     except FilteredAnimeExhaustedError as e:
-        from ui_shared import build_filter_exhausted_message
+        from utils.ui_shared import build_filter_exhausted_message
         msg = build_filter_exhausted_message(e)
         try:
             if callback.message.content_type == "photo":
@@ -941,7 +941,7 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
     await callback.answer("Додано в обрані! ❤️")
 
 # History Handlers
-from callbacks import HistoryCB
+from utils.callbacks import HistoryCB
 
 @router.callback_query(MenuCB.filter(F.action == "history"))
 async def cb_menu_history(c: CallbackQuery, db_funcs: dict):
