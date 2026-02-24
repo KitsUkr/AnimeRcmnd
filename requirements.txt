@@ -1,4 +1,4 @@
-aiogram>=3.0
+aiogram>=3.25
 python-dotenv
 aiohttp
 psycopg2-binary
