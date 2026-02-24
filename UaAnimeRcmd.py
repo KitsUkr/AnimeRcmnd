@@ -470,8 +470,8 @@ START_TEXT = (
 )
 
 CHANNEL_SUBSCRIBE_TEXT = (
-    "👋 <b>Вітаю!</b>\n\n"
-    "Підпишись на наш канал, щоб не пропустити оновлення бота 📢\n\n"
+    "<tg-emoji emoji-id=\"5472055112702629499\">👋</tg-emoji> <b>Привіт{name_part}!</b>\n\n"
+    "Підпишись на наш канал, щоб не пропустити оновлення бота <tg-emoji emoji-id=\"5364125616801073577\">📢</tg-emoji>\n\n"
     "<b>P.S: Підписка не є обов'язковою!</b>\n"
 )
 
@@ -489,7 +489,11 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
     if CHANNEL_USERNAME:
         channel = CHANNEL_USERNAME.lstrip("@")
         buttons.append([
-            InlineKeyboardButton(text="📢 Підписатись на канал", url=f"https://t.me/{channel}")
+            InlineKeyboardButton(
+                text="Підписатись на канал",
+                url=f"https://t.me/{channel}",
+                icon_custom_emoji_id="5771695636411847302"
+            )
         ])
     buttons.append([
         InlineKeyboardButton(text="Продовжити", callback_data="subscribe:continue")
@@ -621,7 +625,10 @@ async def cmd_start(message: Message, start_text: str, kb_start_func):
     
     if new_user and CHANNEL_USERNAME:
         # Новий користувач — показуємо рекомендацію підписки (без reply-клавіатури)
-        await message.answer(CHANNEL_SUBSCRIBE_TEXT, reply_markup=kb_channel_subscribe())
+        user = message.from_user
+        name = user.first_name or (f"@{user.username}" if user.username else None)
+        name_part = f", {name}" if name else ""
+        await message.answer(CHANNEL_SUBSCRIBE_TEXT.format(name_part=name_part), reply_markup=kb_channel_subscribe())
     else:
         # Існуючий користувач — одразу стартове меню + reply-клавіатура
         await message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
