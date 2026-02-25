@@ -898,8 +898,8 @@ class HikkaClient:
         count_row = conn.execute(COUNT_LIBRARY).fetchone()
         count = count_row[0] if count_row else 0
         
-        if count < 100 or seasons:
-            print(f"[RANDOM] ⚠️ Бібліотека порожня або є фільтр по сезонах, використовую HTTP-метод")
+        if count < 100:
+            print(f"[RANDOM] ⚠️ Бібліотека порожня ({count} записів), використовую HTTP-метод")
             return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
         
         # 2. Якщо є фільтри по жанрах - перевіряємо, чи достатньо жанрів у базі
@@ -996,6 +996,11 @@ class HikkaClient:
             if score_min is not None and (sc is None or sc < score_min):
                 continue
 
+            # Фільтрація по сезонах
+            if seasons:
+                if season is None or season not in seasons:
+                    continue
+
             candidates.append(Anime(
                 id=slug, slug=slug, title=title,
                 year=yr, score=sc, genres=g_list,
@@ -1059,6 +1064,11 @@ class HikkaClient:
                         # Фільтр по мінімальному рейтингу (Smart Fallback)
                         if score_min is not None and (sc is None or sc < score_min):
                             continue
+
+                        # Фільтрація по сезонах (Smart Fallback)
+                        if seasons:
+                            if season is None or season not in seasons:
+                                continue
                         
                         candidates.append(Anime(
                             id=slug, slug=slug, title=title,

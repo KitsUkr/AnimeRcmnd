@@ -10,7 +10,10 @@ from utils.safe_edit import safe_edit_text
 
 router = Router()
 
-def _admin_ids() -> set[int]:
+# Кешуємо список адмін-ID одразу при завантаженні модуля
+_ADMIN_IDS: set[int] = set()
+
+def _load_admin_ids() -> set[int]:
     raw = (os.getenv("ADMIN_IDS") or "").strip()
     out: set[int] = set()
     for x in raw.split(","):
@@ -19,22 +22,26 @@ def _admin_ids() -> set[int]:
             out.add(int(x))
     return out
 
+_ADMIN_IDS = _load_admin_ids()
+
 def is_admin(user_id: int) -> bool:
-    return user_id in _admin_ids()
+    return user_id in _ADMIN_IDS
 
 def init_admin_db() -> None:
-    conn = db()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bot_users (
-            user_id INTEGER PRIMARY KEY,
-            first_seen_at INTEGER NOT NULL,
-            last_seen_at INTEGER NOT NULL,
-            username TEXT,
-            first_name TEXT
+    from database.connection import transaction
+    with transaction():
+        conn = db()
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bot_users (
+                user_id INTEGER PRIMARY KEY,
+                first_seen_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                username TEXT,
+                first_name TEXT
+            )
+            """
         )
-        """
-    )
 
 def touch_user(user_id: int, username: str | None = None, first_name: str | None = None) -> None:
     now = int(time.time())

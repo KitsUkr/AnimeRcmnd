@@ -1,4 +1,5 @@
-import traceback
+﻿import traceback
+from collections import OrderedDict
 from urllib.parse import unquote_plus
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
 import asyncio
@@ -600,7 +601,17 @@ def kb_torrent_links(cb_id: str, links: List[Dict[str, str]], back_data: str | N
     ])
     return kb
 
-anime_cache: Dict[str, Anime] = {}  # cb_id -> Anime
+# LRU-кеш з обмеженням на 500 елементів (щоб пам'ять не росла нескінченно)
+ANIME_CACHE_MAX_SIZE = 500
+anime_cache: OrderedDict[str, Anime] = OrderedDict()
+
+def _cache_anime(cb_id: str, anime: Anime) -> None:
+    """Додає аніме в кеш з автоматичним видаленням старих записів."""
+    if cb_id in anime_cache:
+        anime_cache.move_to_end(cb_id)
+    anime_cache[cb_id] = anime
+    while len(anime_cache) > ANIME_CACHE_MAX_SIZE:
+        anime_cache.popitem(last=False)
 
 # =========================
 # Bot
@@ -741,7 +752,6 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
     
     # Filter alert logic
     if has_filters and not get_filter_alert_shown(user_id):
-        await get_all_genres(hikka_client) 
         
         alert_text = get_filter_alert_text(
             selected_genres=search_genres,
@@ -837,7 +847,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
         # Update last recommendation time to keep session active for filter alerts
         update_last_recommendation_time(user_id)
     
-    anime_cache[cb_id] = anime
+    _cache_anime(cb_id, anime)
 
     # Presentation Logic
     has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons or rating_min is not None)
@@ -950,10 +960,21 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     cb_id = callback_data.id
     user_id = callback.from_user.id
     
-    # Check filters to restore the button if needed
+    # Check ALL filters to restore the button if needed
     search_genres = get_selected_genres(user_id)
     excluded_genres = get_excluded_genres(user_id)
-    has_filters = bool(search_genres or excluded_genres)
+    selected_ct = get_selected_content_types(user_id)
+    excluded_ct = get_excluded_content_types(user_id)
+    year_f = get_year_from(user_id)
+    year_t = get_year_to(user_id)
+    seasons_sel = get_selected_seasons(user_id)
+    rating = get_rating_min(user_id)
+    has_filters = bool(
+        search_genres or excluded_genres
+        or selected_ct or excluded_ct
+        or year_f or year_t
+        or seasons_sel or rating is not None
+    )
 
     await callback.answer()
     await safe_edit_reply_markup(callback.message, reply_markup=kb_for_anime(cb_id, has_filter=has_filters))

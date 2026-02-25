@@ -239,10 +239,8 @@ async def inline_search(query: InlineQuery):
                     )
                 )
     
-    # Відповідаємо на inline-запит
-    # cache_time=0 — без кешування для debug (потім можна повернути на 30)
     await query.answer(
         results=results,
         cache_time=0,
-        is_personal=True  # Персональні результати для debug
+        is_personal=True
     )

@@ -200,10 +200,9 @@ async def get_all_genres(hikka_client) -> List[str]:
     
     if genres_data:
         # Зберігаємо в bot_meta для кешування
-        from api.hikka_client import meta_set, META_GENRES_VERSION, GENRES_VERSION
+        from api.hikka_client import meta_set, META_AVAILABLE_GENRES
         genres_json = json.dumps(genres_data, ensure_ascii=False)
         meta_set(META_AVAILABLE_GENRES, genres_json)
-        meta_set(META_GENRES_VERSION, GENRES_VERSION)
         
         # Синхронізуємо GENRE_MAP
         sync_genre_mapping(genres_data)
