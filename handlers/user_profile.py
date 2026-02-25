@@ -67,7 +67,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
         """
         SELECT anime_id, title, poster_url, hikka_url,
                year, score, episodes_total, genres_json,
-               description, watch_links_json
+               description, watch_links_json, ua_poster_url
         FROM user_feedback
         WHERE user_id=%s AND value=1
         ORDER BY ts DESC
@@ -81,7 +81,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
 
     (anime_id, title, poster_url, hikka_url,
      year, score, episodes_total, genres_json,
-     description, watch_links_json) = row
+     description, watch_links_json, ua_poster_url) = row
 
     try:
         genres = json.loads(genres_json) if genres_json else []
@@ -110,6 +110,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
         "genres": [str(x) for x in genres][:8],
         "description": str(description) if description else None,
         "watch_links": watch_links,
+        "ua_poster_url": str(ua_poster_url) if ua_poster_url else None,
     }
 
 def kb_likes_photo(idx: int, total: int, has_watch: bool) -> InlineKeyboardMarkup:
@@ -405,13 +406,15 @@ async def open_likes_viewer(c: CallbackQuery, idx: int):
         poster_url=snap.get("poster_url"),
         hikka_url=snap.get("hikka_url"),
         watch_links=snap.get("watch_links") or [],
+        ua_poster_url=snap.get("ua_poster_url"),
     )
     caption = format_caption(a)
+    final_poster = a.ua_poster_url or a.poster_url
 
-    if a.poster_url:
+    if final_poster:
         await c.bot.send_photo(
             chat_id=c.from_user.id,
-            photo=a.poster_url,
+            photo=final_poster,
             caption=caption,
             reply_markup=kb_likes_photo(
             idx,
@@ -521,12 +524,14 @@ async def prof_unlike(c: CallbackQuery):
         poster_url=new_snap.get("poster_url"),
         hikka_url=new_snap.get("hikka_url"),
         watch_links=new_snap.get("watch_links") or [],
+        ua_poster_url=new_snap.get("ua_poster_url"),
     )
     caption = format_caption(a)
     markup = kb_likes_photo(new_idx, total_after, has_watch=bool(a.watch_links))
+    final_poster = a.ua_poster_url or a.poster_url
 
-    if a.poster_url:
-        await safe_edit_media(c.message, InputMediaPhoto(media=a.poster_url, caption=caption), reply_markup=markup)
+    if final_poster:
+        await safe_edit_media(c.message, InputMediaPhoto(media=final_poster, caption=caption), reply_markup=markup)
     else:
         await safe_edit_text(c.message, caption, reply_markup=markup)
 
@@ -566,14 +571,16 @@ async def prof_likes_photo_pager(c: CallbackQuery):
         poster_url=snap.get("poster_url"),
         hikka_url=snap.get("hikka_url"),
         watch_links=snap.get("watch_links") or [],
+        ua_poster_url=snap.get("ua_poster_url"),
     )
     caption = format_caption(a)
     markup = kb_likes_photo(idx, total, has_watch=bool(a.watch_links))
+    final_poster = a.ua_poster_url or a.poster_url
 
     await c.answer()
 
-    if a.poster_url:
-        await safe_edit_media(c.message, InputMediaPhoto(media=a.poster_url, caption=caption), reply_markup=markup)
+    if final_poster:
+        await safe_edit_media(c.message, InputMediaPhoto(media=final_poster, caption=caption), reply_markup=markup)
     else:
         await safe_edit_text(c.message, caption, reply_markup=markup)
 

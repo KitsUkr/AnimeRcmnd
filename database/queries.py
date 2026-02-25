@@ -28,9 +28,9 @@ INSERT_USER_FEEDBACK = """
         title, poster_url, hikka_url,
         year, score, episodes_total,
         genres_json, description,
-        watch_links_json
+        watch_links_json, ua_poster_url
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (user_id, anime_id) DO UPDATE SET
         value = EXCLUDED.value,
         ts = EXCLUDED.ts,
@@ -42,7 +42,8 @@ INSERT_USER_FEEDBACK = """
         episodes_total = EXCLUDED.episodes_total,
         genres_json = EXCLUDED.genres_json,
         description = EXCLUDED.description,
-        watch_links_json = EXCLUDED.watch_links_json
+        watch_links_json = EXCLUDED.watch_links_json,
+        ua_poster_url = EXCLUDED.ua_poster_url
 """
 
 SELECT_USER_FEEDBACK_LIKES = """

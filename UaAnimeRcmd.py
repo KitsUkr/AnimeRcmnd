@@ -60,8 +60,9 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS rating_min real;")
             conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS season text;")
             conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS season text;")
+            conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS ua_poster_url text;")
         except Exception as e:
-            print(f"Помилка створення колонок сезонів: {e}")
+            print(f"Помилка створення колонок: {e}")
 
 init_admin_db()
 
@@ -112,6 +113,7 @@ def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
                 json.dumps(anime.genres or [], ensure_ascii=False),
                 anime.description,
                 json.dumps(anime.watch_links or [], ensure_ascii=False),
+                anime.ua_poster_url,
             ),
         )
 
