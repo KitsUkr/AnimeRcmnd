@@ -36,8 +36,8 @@ def kb_filters_hub(user_id: int) -> InlineKeyboardMarkup:
                 _btn("Рейтинг", "start:rating", has_rating),
             ],
             [
-                InlineKeyboardButton(text="🎲 Пошук", callback_data=MenuCB(action="recommend").pack()),
                 InlineKeyboardButton(text="🗑️ Скинути фільтри", callback_data="filters:clear_all"),
+                InlineKeyboardButton(text="🎲 Пошук", callback_data=MenuCB(action="recommend").pack()),
             ],
             [
                 InlineKeyboardButton(text="« Назад", callback_data=MenuCB(action="back").pack())
