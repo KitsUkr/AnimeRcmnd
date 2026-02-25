@@ -1101,21 +1101,23 @@ class HikkaClient:
     async def _enrich_anime_details(self, session: aiohttp.ClientSession, got: Anime):
         """Підтягує деталі (опис, лінки) + LAZY LOADING + створення в anime_library"""
         
-        # Перевіряємо чи є жанри в anime_library (для lazy loading)
-        library_has_genres = self._check_library_has_genres(got.slug)
-        library_record_exists = self._library_record_exists(got.slug)
+        # ✅ Один SQL замість трьох: перевіряємо існування, жанри та UA постер
+        lib_info = self._get_library_info(got.slug)
+        library_record_exists = lib_info is not None
+        library_has_genres = False
         
-        # Підтягуємо ua_poster_url з anime_library якщо немає
-        if not got.ua_poster_url and library_record_exists:
-            try:
-                conn = db()
-                row = conn.execute(
-                    "SELECT ua_poster_url FROM anime_library WHERE slug=%s", (got.slug,)
-                ).fetchone()
-                if row and row[0]:
-                    got.ua_poster_url = row[0]
-            except Exception:
-                pass
+        if lib_info:
+            lib_genres_json, lib_ua_poster = lib_info
+            # Перевіряємо жанри
+            if lib_genres_json:
+                try:
+                    genres = json.loads(lib_genres_json)
+                    library_has_genres = isinstance(genres, list) and len(genres) > 0
+                except Exception:
+                    pass
+            # Підтягуємо ua_poster_url якщо немає
+            if not got.ua_poster_url and lib_ua_poster:
+                got.ua_poster_url = lib_ua_poster
         
         # Кеш тепер зберігає тільки опис і лінки (не жанри)
         cached = get_cached_details(got.slug)
@@ -1144,31 +1146,31 @@ class HikkaClient:
         if not library_record_exists or (got.genres and not library_has_genres):
             self._ensure_anime_in_library(got)
 
-    def _check_library_has_genres(self, slug: str) -> bool:
-        """Перевіряє чи є жанри в anime_library для цього slug"""
+    def _get_library_info(self, slug: str):
+        """Повертає (genres_json, ua_poster_url) або None якщо запис не існує."""
         try:
             conn = db()
             row = conn.execute(
-                "SELECT genres_json FROM anime_library WHERE slug=%s", (slug,)
+                "SELECT genres_json, ua_poster_url FROM anime_library WHERE slug=%s", (slug,)
             ).fetchone()
-            if row and row[0]:
-                # Є запис і genres_json не пустий
-                genres = json.loads(row[0])
-                return isinstance(genres, list) and len(genres) > 0
-            return False
+            return row  # None якщо не існує
         except Exception:
-            return False
+            return None
+
+    def _check_library_has_genres(self, slug: str) -> bool:
+        """Перевіряє чи є жанри в anime_library для цього slug"""
+        info = self._get_library_info(slug)
+        if info and info[0]:
+            try:
+                genres = json.loads(info[0])
+                return isinstance(genres, list) and len(genres) > 0
+            except Exception:
+                pass
+        return False
 
     def _library_record_exists(self, slug: str) -> bool:
         """Перевіряє чи існує запис в anime_library для цього slug"""
-        try:
-            conn = db()
-            row = conn.execute(
-                "SELECT 1 FROM anime_library WHERE slug=%s", (slug,)
-            ).fetchone()
-            return row is not None
-        except Exception:
-            return False
+        return self._get_library_info(slug) is not None
 
     def _ensure_anime_in_library(self, anime: Anime) -> None:
         """

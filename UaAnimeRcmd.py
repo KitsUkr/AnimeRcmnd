@@ -154,6 +154,57 @@ def remove_invalid_ua_poster(slug: str) -> None:
         print(f"[POSTER] Помилка видалення UA постера для {slug}: {e}")
 
 
+def get_user_filters(user_id: int) -> dict:
+    """Завантажує ВСІ фільтри одним SQL-запитом. Повертає dict."""
+    conn = db()
+    row = conn.execute(
+        """SELECT selected_genres_json, excluded_genres_json,
+                  selected_content_types_json, excluded_content_types_json,
+                  year_from, year_to,
+                  selected_seasons_json, rating_min
+           FROM user_state WHERE user_id = %s""",
+        (user_id,)
+    ).fetchone()
+    
+    if not row:
+        return {
+            "genres": [], "excluded_genres": [],
+            "content_types": [], "excluded_content_types": [],
+            "year_from": None, "year_to": None,
+            "seasons": [], "rating_min": None,
+        }
+    
+    def _parse_json_list(val):
+        if not val:
+            return []
+        try:
+            r = json.loads(val)
+            return r if isinstance(r, list) else []
+        except Exception:
+            return []
+    
+    return {
+        "genres": _parse_json_list(row[0]),
+        "excluded_genres": _parse_json_list(row[1]),
+        "content_types": _parse_json_list(row[2]),
+        "excluded_content_types": _parse_json_list(row[3]),
+        "year_from": int(row[4]) if row[4] is not None else None,
+        "year_to": int(row[5]) if row[5] is not None else None,
+        "seasons": _parse_json_list(row[6]),
+        "rating_min": float(row[7]) if row[7] is not None else None,
+    }
+
+
+def has_any_filter(f: dict) -> bool:
+    """Перевіряє чи є хоча б один активний фільтр."""
+    return bool(
+        f["genres"] or f["excluded_genres"]
+        or f["content_types"] or f["excluded_content_types"]
+        or f["year_from"] or f["year_to"]
+        or f["seasons"] or f["rating_min"] is not None
+    )
+
+
 def get_excluded_ids(user_id: int) -> List[str]:
     conn = db()
     seen = conn.execute(
@@ -701,21 +752,9 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
 async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
     """Рекомендувати з хабу фільтрів — тільки якщо є хоча б один активний фільтр."""
     user_id = callback.from_user.id
-    search_genres = get_selected_genres(user_id)
-    excluded_genres = get_excluded_genres(user_id)
-    selected_content_types = get_selected_content_types(user_id)
-    excluded_content_types = get_excluded_content_types(user_id)
-    year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
-    seasons = get_selected_seasons(user_id)
-    rating_min = get_rating_min(user_id)
+    f = get_user_filters(user_id)
 
-    has_filters = bool(
-        search_genres or excluded_genres
-        or selected_content_types or excluded_content_types
-        or year_from or year_to or seasons or rating_min is not None
-    )
-    if not has_filters:
+    if not has_any_filter(f):
         await callback.answer("Перед початком оберіть хоча б один фільтр!", show_alert=True)
         return
     await cb_random_anime(callback, hikka_client, db_funcs)
@@ -735,20 +774,21 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
     last_page = get_last(user_id)
     
     
-    search_genres = get_selected_genres(user_id)
-    excluded_genres = get_excluded_genres(user_id)
-    selected_content_types = get_selected_content_types(user_id)
-    excluded_content_types = get_excluded_content_types(user_id)
-    year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
-    seasons = get_selected_seasons(user_id)
-    rating_min = get_rating_min(user_id)
+    f = get_user_filters(user_id)
+    search_genres = f["genres"]
+    excluded_genres = f["excluded_genres"]
+    selected_content_types = f["content_types"]
+    excluded_content_types = f["excluded_content_types"]
+    year_from = f["year_from"]
+    year_to = f["year_to"]
+    seasons = f["seasons"]
+    rating_min = f["rating_min"]
     
     # Ensure genre map is loaded for SQL search (names)
     await get_all_genres(hikka_client)
     search_genre_names = [get_name_by_slug(s) for s in search_genres]
 
-    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons or rating_min is not None)
+    has_filters = has_any_filter(f)
     
     # Filter alert logic
     if has_filters and not get_filter_alert_shown(user_id):
@@ -960,21 +1000,8 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     cb_id = callback_data.id
     user_id = callback.from_user.id
     
-    # Check ALL filters to restore the button if needed
-    search_genres = get_selected_genres(user_id)
-    excluded_genres = get_excluded_genres(user_id)
-    selected_ct = get_selected_content_types(user_id)
-    excluded_ct = get_excluded_content_types(user_id)
-    year_f = get_year_from(user_id)
-    year_t = get_year_to(user_id)
-    seasons_sel = get_selected_seasons(user_id)
-    rating = get_rating_min(user_id)
-    has_filters = bool(
-        search_genres or excluded_genres
-        or selected_ct or excluded_ct
-        or year_f or year_t
-        or seasons_sel or rating is not None
-    )
+    f = get_user_filters(user_id)
+    has_filters = has_any_filter(f)
 
     await callback.answer()
     await safe_edit_reply_markup(callback.message, reply_markup=kb_for_anime(cb_id, has_filter=has_filters))

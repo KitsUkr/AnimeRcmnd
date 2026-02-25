@@ -483,114 +483,13 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     
     user_id = c.from_user.id
     selected_slugs = get_selected_genres(user_id)
-    excluded_gen_slugs = get_excluded_genres(user_id)  # ✅ Завантажуємо один раз
     
     if not selected_slugs:
         await c.answer("Виберіть хоча б один жанр! 😅", show_alert=True)
         return
 
-    # Included
-    # names_inc are loaded earlier
-
-    from utils.ui_shared import get_filter_alert_text
-    from handlers.filters.content import get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
-
-    types_inc = get_selected_content_types(user_id)
-    types_exc = get_excluded_content_types(user_id)
-
-    alert_text = get_filter_alert_text(
-        selected_genres=selected_slugs,
-        excluded_genres=excluded_gen_slugs,
-        selected_types=types_inc,
-        excluded_types=types_exc,
-        genre_names=GENRE_MAP,
-        type_names=CONTENT_TYPE_MAP
-    )
-    
-    if alert_text:
-        await c.answer(alert_text, show_alert=True)
-    else:
-        await c.answer()
-
-    get_excluded = db_funcs['get_excluded_ids']
-    get_last = db_funcs['get_last_page']
-    set_last = db_funcs['set_last_page']
-    mark_seen = db_funcs['mark_seen']
-    save_cb_map = db_funcs['save_cb_map']
-
-    excluded_ids = get_excluded(user_id)
-    last_page = get_last(user_id)
-    
-    # Convert slugs to names for library search
-    selected_genre_names = [get_name_by_slug(s) for s in selected_slugs]
-    # ✅ Використовуємо excluded_gen_slugs з початку функції
-
-    try:
-        anime, used_page = await hikka_client.random_anime(
-            exclude_ids=excluded_ids,
-            last_page=last_page,
-            genres=selected_slugs,
-            genre_names=selected_genre_names,
-            excluded_genres=excluded_gen_slugs  # ✅ single source of truth
-        )
-    except Exception as e:
-        from api.hikka_client import FilteredAnimeExhaustedError
-        if isinstance(e, FilteredAnimeExhaustedError):
-            from utils.ui_shared import build_filter_exhausted_message
-            msg = build_filter_exhausted_message(e)
-            try:
-                if c.message.content_type == "photo":
-                    await c.message.delete()
-                    await c.message.answer(msg)
-                else:
-                    await c.message.edit_text(msg)
-            except Exception:
-                try:
-                    await c.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
-                except:
-                    pass
-            return
-        await safe_edit_text(c.message, f"Не вдалося знайти аніме у жанрах: {', '.join(selected_slugs)}\n\nПомилка: {e}")
-        return
-
-    cb_id = uuid.uuid4().hex[:12]
-    
-    with transaction():
-        set_last(user_id, used_page)
-        mark_seen(user_id, anime.id)
-        save_cb_map(cb_id, anime)
-
-    caption = format_caption(anime)
-    # Uses ui_shared.kb_for_anime which uses AnimeCB now!
-    kb = kb_for_anime(cb_id, has_filter=True)
-
-    # Choose poster: UA > Hikka > None
-    final_poster_url = anime.ua_poster_url if anime.ua_poster_url else anime.poster_url
-    has_ua_poster = bool(anime.ua_poster_url)
-
-    if final_poster_url:
-        try:
-            await c.message.edit_media(InputMediaPhoto(media=final_poster_url, caption=caption), reply_markup=kb)
-            return
-        except Exception as e:
-            print(f"[GENRES] ❌ Не вдалося відправити постер {final_poster_url}: {e}")
-            
-            # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
-            if has_ua_poster:
-                from UaAnimeRcmd import is_telegram_poster_error, remove_invalid_ua_poster
-                if is_telegram_poster_error(e):
-                    remove_invalid_ua_poster(anime.slug)
-            
-            # Fallback на Hikka постер якщо це був битий UA постер
-            if has_ua_poster and anime.poster_url:
-                print(f"[FALLBACK] Пробую Hikka постер в жанрах")
-                try:
-                    await c.message.edit_media(InputMediaPhoto(media=anime.poster_url, caption=caption), reply_markup=kb)
-                    return
-                except Exception as e2:
-                    print(f"[FALLBACK] Hikka постер теж не вдався: {e2}")
-
-    await safe_edit_text(c.message, caption, reply_markup=kb)
+    from UaAnimeRcmd import cb_random_anime
+    await cb_random_anime(c, hikka_client, db_funcs)
 
 
 # ==================== Text-based genre search ====================

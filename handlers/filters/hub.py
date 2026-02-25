@@ -6,17 +6,14 @@ from utils.safe_edit import safe_edit_text
 router = Router()
 
 def kb_filters_hub(user_id: int) -> InlineKeyboardMarkup:
-    from handlers.filters.genre import get_selected_genres, get_excluded_genres
-    from handlers.filters.content import get_selected_content_types, get_excluded_content_types
-    from handlers.filters.year import get_year_from, get_year_to
-    from handlers.filters.season import get_selected_seasons
-    from handlers.filters.rating import get_rating_min
+    from UaAnimeRcmd import get_user_filters
+    f = get_user_filters(user_id)
 
-    has_genres = bool(get_selected_genres(user_id) or get_excluded_genres(user_id))
-    has_types = bool(get_selected_content_types(user_id) or get_excluded_content_types(user_id))
-    has_year = get_year_from(user_id) is not None or get_year_to(user_id) is not None
-    has_seasons = bool(get_selected_seasons(user_id))
-    has_rating = get_rating_min(user_id) is not None
+    has_genres = bool(f["genres"] or f["excluded_genres"])
+    has_types = bool(f["content_types"] or f["excluded_content_types"])
+    has_year = f["year_from"] is not None or f["year_to"] is not None
+    has_seasons = bool(f["seasons"])
+    has_rating = f["rating_min"] is not None
 
     def _btn(label: str, callback: str, active: bool) -> InlineKeyboardButton:
         return InlineKeyboardButton(
