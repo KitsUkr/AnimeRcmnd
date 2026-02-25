@@ -35,6 +35,10 @@ class YearCB(CallbackData, prefix="year"):
 class AdminCB(CallbackData, prefix="admin"):
     action: str  # refresh_stats, force_sync
 
+class AdCampaignCB(CallbackData, prefix="adcamp"):
+    action: str  # list, detail, delete, confirm_delete, create
+    campaign_id: str | None = None
+
 class SeasonCB(CallbackData, prefix="season"):
     action: str  # mode, toggle, clear, recommend
     slug: str | None = None

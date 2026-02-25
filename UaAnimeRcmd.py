@@ -413,43 +413,43 @@ def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[L
 # ✅ зберігаємо повний снапшот Anime у cb_map
 def save_cb_map(cb_id: str, anime: "Anime") -> str:
     """Зберігає або оновлює запис в cb_map. Повертає cb_id (існуючий або новий)."""
-    conn = db()
-    
-    # Перевіряємо чи вже є запис для цього anime_id
-    existing = conn.execute(
-        "SELECT cb_id FROM cb_map WHERE anime_id = %s",
-        (anime.id,)
-    ).fetchone()
-    
-    if existing:
-        # Оновлюємо існуючий запис, зберігаючи cb_id
-        conn.execute(
-            """
-            UPDATE cb_map SET 
-                description = %s,
-                created_at = %s
-            WHERE anime_id = %s
-            """,
-            (
-                anime.description,
-                int(time.time()),
-                anime.id,
-            ),
-        )
-        return existing[0]  # Повертаємо існуючий cb_id
-    else:
-        # Створюємо новий запис
-        conn.execute(
-            INSERT_CB_MAP,
-            (
-                cb_id,
-                anime.id,
-                anime.description,
-                int(time.time()),
-            ),
-        )
-        return cb_id  # Повертаємо новий cb_id
-
+    with transaction():
+        conn = db()
+        
+        # Перевіряємо чи вже є запис для цього anime_id
+        existing = conn.execute(
+            "SELECT cb_id FROM cb_map WHERE anime_id = %s",
+            (anime.id,)
+        ).fetchone()
+        
+        if existing:
+            # Оновлюємо існуючий запис, зберігаючи cb_id
+            conn.execute(
+                """
+                UPDATE cb_map SET 
+                    description = %s,
+                    created_at = %s
+                WHERE anime_id = %s
+                """,
+                (
+                    anime.description,
+                    int(time.time()),
+                    anime.id,
+                ),
+            )
+            return existing[0]  # Повертаємо існуючий cb_id
+        else:
+            # Створюємо новий запис
+            conn.execute(
+                INSERT_CB_MAP,
+                (
+                    cb_id,
+                    anime.id,
+                    anime.description,
+                    int(time.time()),
+                ),
+            )
+            return cb_id  # Повертаємо новий cb_id
 
 def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
     """Повертає (anime_id, title) або None."""
@@ -681,9 +681,16 @@ async def cmd_start(message: Message, start_text: str, kb_start_func):
     user_id = message.from_user.id
     new_user = is_new_user(user_id)
     
-    # Зберігаємо/оновлюємо користувача
+    # Парсимо deep link payload (наприклад /start ad_instagram_feb)
+    ad_source = None
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1 and args[1].startswith("ad_"):
+        ad_source = args[1][3:]  # "ad_instagram_feb" -> "instagram_feb"
+    
+    # Зберігаємо/оновлюємо користувача (ad_source зберігається тільки для нових)
     with transaction():
-        touch_user(user_id, message.from_user.username, message.from_user.first_name)
+        touch_user(user_id, message.from_user.username, message.from_user.first_name, 
+                   ad_source=ad_source if new_user else None)
     
     if new_user and CHANNEL_USERNAME:
         # Новий користувач — показуємо рекомендацію підписки (без reply-клавіатури)
