@@ -709,14 +709,14 @@ async def cmd_start(message: Message, start_text: str, kb_start_func):
 async def cmd_feedback(message: Message):
     channel = CHANNEL_USERNAME.lstrip("@") if CHANNEL_USERNAME else ""
     text = (
-        "💬 <b>Зворотний зв'язок</b>\n\n"
+        "<tg-emoji emoji-id=\"5884510167986343350\">💬</tg-emoji> <b>Зворотний зв'язок</b>\n\n"
         "Хочеш залишити відгук, пропозицію чи повідомити про баг?\n"
         "Переходь у наш канал і пиши в коментарях 👇"
     )
     kb = None
     if channel:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Перейти в канал", url=f"https://t.me/{channel}")]
+            [InlineKeyboardButton(text="Перейти в канал", icon_custom_emoji_id="5771695636411847302", url=f"https://t.me/{channel}")]
         ])
     await message.answer(text, reply_markup=kb)
 
