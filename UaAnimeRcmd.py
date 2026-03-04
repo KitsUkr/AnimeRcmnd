@@ -28,9 +28,10 @@ from handlers.filters.rating import router as rating_router, get_rating_min
 from handlers.filters.hub import router as filters_hub_router
 from handlers.inline_handler import router as inline_router
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
+from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in, run_hikka_redirect_server
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
-from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB
+from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -65,6 +66,7 @@ def init_db() -> None:
             print(f"Помилка створення колонок: {e}")
 
 init_admin_db()
+init_hikka_auth_db()
 
 class DependencyMiddleware(BaseMiddleware):
     def __init__(self, hikka_client, start_text: str, kb_start_func, db_funcs: dict):
@@ -679,15 +681,36 @@ async def cb_noop(c: CallbackQuery):
     await c.answer()
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, start_text: str, kb_start_func):
+async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth: HikkaAuth):
     user_id = message.from_user.id
     new_user = is_new_user(user_id)
     
     # Парсимо deep link payload (наприклад /start ad_instagram_feb)
     ad_source = None
     args = message.text.split(maxsplit=1)
-    if len(args) > 1 and args[1].startswith("ad_"):
-        ad_source = args[1][3:]  # "ad_instagram_feb" -> "instagram_feb"
+    payload = args[1] if len(args) > 1 else ""
+    
+    # --- Hikka OAuth deep link: /start hikka_{reference} ---
+    if payload.startswith("hikka_"):
+        request_reference = payload[6:]  # "hikka_abc123" -> "abc123"
+        if request_reference and hikka_auth.is_configured:
+            success, result = await hikka_auth.login_user(user_id, request_reference)
+            if success:
+                await message.answer(
+                    f"✅ <b>Успішно підключено до Hikka!</b>\n\n"
+                    f"Акаунт: <b>{result}</b>\n\n"
+                    f"Тепер при натисканні ❤️ аніме буде автоматично "
+                    f"додаватись у список <b>Заплановані</b> на Hikka.",
+                )
+            else:
+                await message.answer(
+                    f"❌ <b>Не вдалося підключити Hikka</b>\n\n{result}\n\n"
+                    f"Спробуй ще раз через Профіль → 🔗 Hikka.",
+                )
+        return
+    
+    if payload.startswith("ad_"):
+        ad_source = payload[3:]  # "ad_instagram_feb" -> "instagram_feb"
     
     # Зберігаємо/оновлюємо користувача (ad_source зберігається тільки для нових)
     with transaction():
@@ -1016,7 +1039,7 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     await safe_edit_reply_markup(callback.message, reply_markup=kb_for_anime(cb_id, has_filter=has_filters))
 
 @router.callback_query(AnimeCB.filter(F.action == "like"))
-async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict):
+async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_auth: HikkaAuth):
     action = callback_data.action
     cb_id = callback_data.id
     val = 1 
@@ -1031,7 +1054,21 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
     set_fb = db_funcs['set_feedback']
     set_fb(callback.from_user.id, anime, val)
 
-    await callback.answer("Додано в обрані! ❤️")
+    # --- Hikka sync: додаємо в "planned" якщо юзер залогінений ---
+    user_id = callback.from_user.id
+    hikka_msg = ""
+    if hikka_auth.is_configured and is_hikka_logged_in(user_id):
+        try:
+            success, status = await hikka_auth.add_to_planned(user_id, anime.slug)
+            if success:
+                hikka_msg = " + Hikka ✓"
+            elif status == "token_expired":
+                hikka_msg = "\n⚠️ Hikka: токен прострочений, перелогіньтесь"
+            # Інші помилки ігноруємо (локальне збереження вже відбулось)
+        except Exception as e:
+            print(f"[HIKKA SYNC] Error for user {user_id}: {e}")
+
+    await callback.answer(f"Додано в обрані! ❤️{hikka_msg}")
 
 # History Handlers
 from utils.callbacks import HistoryCB
@@ -1370,11 +1407,15 @@ async def main() -> None:
 
     # Start background tasks
     _ = asyncio.create_task(refresh_library_loop())
+    _ = asyncio.create_task(run_hikka_redirect_server())
 
     dp = Dispatcher()
+
+    hikka_auth = HikkaAuth()
     
     dp.workflow_data.update(
         hikka_client=hikka,
+        hikka_auth=hikka_auth,
         start_text=START_TEXT,
         kb_start_func=kb_start,
         db_funcs={

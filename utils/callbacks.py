@@ -47,3 +47,6 @@ class SeasonCB(CallbackData, prefix="season"):
 class RatingCB(CallbackData, prefix="rating"):
     action: str  # set, clear, recommend
     rating: float | None = None
+
+class HikkaCB(CallbackData, prefix="hikka"):
+    action: str  # login, logout, status
