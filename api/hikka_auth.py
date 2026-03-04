@@ -130,7 +130,7 @@ class HikkaAuth:
         підтверджує доступ для нашого клієнта, і Hikka перенаправляє 
         його назад на endpoint (deep link в бота) з request_reference.
         """
-        return f"https://hikka.io/oauth?reference={self.client_reference}&scope=watchlist"
+        return f"https://hikka.io/oauth?reference={self.client_reference}&scope=watchlist,read:user-details"
 
     async def exchange_token(self, request_reference: str) -> Optional[str]:
         """
@@ -310,3 +310,13 @@ async def run_hikka_redirect_server():
     site = web.TCPSite(runner, "0.0.0.0", HIKKA_REDIRECT_PORT)
     await site.start()
     print(f"[HIKKA REDIRECT] Server started on port {HIKKA_REDIRECT_PORT}")
+
+# user_id -> message_id повідомлення-інструкції логіну.
+# Дозволяє редагувати оригінальне повідомлення замість надсилання нового.
+_hikka_login_messages: dict[int, int] = {}
+
+def save_hikka_login_msg(user_id: int, message_id: int) -> None:
+    _hikka_login_messages[user_id] = message_id
+
+def pop_hikka_login_msg(user_id: int) -> Optional[int]:
+    return _hikka_login_messages.pop(user_id, None)

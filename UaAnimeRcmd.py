@@ -31,7 +31,7 @@ from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSe
 from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in, run_hikka_redirect_server
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
-from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB
+from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB, SettingsCB
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -565,7 +565,8 @@ def kb_start() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🎲 Випадкове аніме", callback_data=MenuCB(action="random").pack())],
-            [InlineKeyboardButton(text="👤 Профіль", callback_data=MenuCB(action="profile").pack())],
+            [InlineKeyboardButton(text="👤 Профіль", callback_data=MenuCB(action="profile").pack()),
+             InlineKeyboardButton(text="⚙️ Налаштування", callback_data=SettingsCB(action="menu").pack())],
             [InlineKeyboardButton(text="🔍 Фільтри пошуку", callback_data="start:filters")],
         ]
     )
@@ -668,6 +669,7 @@ def _cache_anime(cb_id: str, anime: Anime) -> None:
     while len(anime_cache) > ANIME_CACHE_MAX_SIZE:
         anime_cache.popitem(last=False)
 
+
 # =========================
 # Bot
 # =========================
@@ -694,19 +696,49 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
     if payload.startswith("hikka_"):
         request_reference = payload[6:]  # "hikka_abc123" -> "abc123"
         if request_reference and hikka_auth.is_configured:
+            # Видаляємо deep link повідомлення щоб не засмічувати чат
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
             success, result = await hikka_auth.login_user(user_id, request_reference)
+
+            # Формуємо текст результату
             if success:
-                await message.answer(
-                    f"✅ <b>Успішно підключено до Hikka!</b>\n\n"
+                result_text = (
+                    f"✅ <b>Успішно підключено до <tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> Hikka!</b>\n\n"
                     f"Акаунт: <b>{result}</b>\n\n"
                     f"Тепер при натисканні ❤️ аніме буде автоматично "
-                    f"додаватись у список <b>Заплановані</b> на Hikka.",
+                    f"додаватись у список <b>Заплановані</b> на Hikka."
                 )
             else:
-                await message.answer(
+                result_text = (
                     f"❌ <b>Не вдалося підключити Hikka</b>\n\n{result}\n\n"
-                    f"Спробуй ще раз через Профіль → 🔗 Hikka.",
+                    f"Спробуй ще раз через ⚙️ Налаштування → <tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> Hikka."
                 )
+
+            result_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
+            ])
+
+            # Редагуємо оригінальне повідомлення-інструкцію (якщо збережено)
+            from api.hikka_auth import pop_hikka_login_msg
+            login_msg_id = pop_hikka_login_msg(user_id)
+            if login_msg_id:
+                try:
+                    await message.bot.edit_message_text(
+                        text=result_text,
+                        chat_id=message.chat.id,
+                        message_id=login_msg_id,
+                        reply_markup=result_kb,
+                    )
+                except Exception:
+                    # Fallback: повідомлення видалене або недоступне
+                    await message.answer(result_text, reply_markup=result_kb)
+            else:
+                # Fallback: бот перезавантажився, message_id загублено
+                await message.answer(result_text, reply_markup=result_kb)
         return
     
     if payload.startswith("ad_"):
@@ -779,6 +811,30 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
         await callback.message.answer(start_text, reply_markup=kb_start_func())
     else:
         await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
+
+
+def kb_settings() -> InlineKeyboardMarkup:
+    """Клавіатура меню Налаштувань"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Hikka", icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
+            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="back").pack())],
+        ]
+    )
+
+
+@router.callback_query(SettingsCB.filter(F.action == "menu"))
+async def cb_settings_menu(callback: CallbackQuery):
+    """Меню Налаштувань"""
+    await callback.answer()
+    text = "⚙️ <b>Налаштування</b>\n\nОберіть опцію:"
+    await safe_edit_text(callback.message, text, reply_markup=kb_settings())
+
+
+@router.callback_query(SettingsCB.filter(F.action == "back"))
+async def cb_settings_back(callback: CallbackQuery, start_text: str, kb_start_func):
+    """Повернення з Налаштувань до стартового меню"""
+    await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "recommend"))
 async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):

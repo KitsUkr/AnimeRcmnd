@@ -7,7 +7,7 @@ from database.connection import db, transaction
 import json
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION
 from aiogram.types import InputMediaPhoto
-from utils.callbacks import MenuCB, HikkaCB
+from utils.callbacks import MenuCB, HikkaCB, SettingsCB
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from api.hikka_auth import HikkaAuth, get_hikka_token, delete_hikka_token, is_hikka_logged_in
 
@@ -205,7 +205,6 @@ def kb_profile(user_id: int = None) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="❤️ Обрані", callback_data="prof:likes_open:0")],
         [InlineKeyboardButton(text="📜 Історія рекомендацій", callback_data=MenuCB(action="history").pack())],
-        [InlineKeyboardButton(text="🔗 Hikka", callback_data=HikkaCB(action="status").pack())],
         [InlineKeyboardButton(text="🧹 Очистити", callback_data="prof:clear_menu")],
         [InlineKeyboardButton(text="« Назад", callback_data="start:back")],
     ]
@@ -748,18 +747,18 @@ async def cb_hikka_status(c: CallbackQuery):
         token, username = token_data
         name_display = f"<b>{username}</b>" if username else "підключено"
         text = (
-            f"🔗 <b>Hikka</b>\n\n"
+            f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
             f"Статус: ✅ {name_display}\n\n"
             f"При натисканні ❤️ аніме автоматично додається "
             f"у <b>Заплановані</b> на Hikka."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🚪 Вийти з Hikka", callback_data=HikkaCB(action="logout").pack())],
-            [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
         ])
     else:
         text = (
-            f"🔗 <b>Hikka</b>\n\n"
+            f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
             f"Статус: ❌ не підключено\n\n"
             f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
             f"аніме автоматично додавалось у список "
@@ -767,7 +766,7 @@ async def cb_hikka_status(c: CallbackQuery):
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
-            [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
         ])
 
     await c.answer()
@@ -788,7 +787,7 @@ async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
         f"2️⃣ Підтверди доступ для бота\n"
         f"3️⃣ Тебе перенаправить назад в бота автоматично\n\n"
         f"<i>Після авторизації аніме з ❤️ буде синхронізуватись "
-        f"зі списком \"\u0417\u0430\u043f\u043b\u0430\u043d\u043e\u0432\u0430\u043d\u0456\" \u043d\u0430 Hikka.</i>"
+        f'зі списком "Заплановані" на Hikka.</i>'
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌐 Відкрити Hikka", url=auth_url)],
@@ -797,6 +796,11 @@ async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
 
     await c.answer()
     await safe_edit_text(c.message, text, reply_markup=kb)
+
+    # Зберігаємо message_id щоб потім відредагувати це повідомлення
+    # на результат авторизації (замість надсилання нового)
+    from api.hikka_auth import save_hikka_login_msg
+    save_hikka_login_msg(c.from_user.id, c.message.message_id)
 
 
 @router.callback_query(HikkaCB.filter(F.action == "logout"))
@@ -808,7 +812,7 @@ async def cb_hikka_logout(c: CallbackQuery):
 
     # Показуємо оновлений статус
     text = (
-        f"🔗 <b>Hikka</b>\n\n"
+        f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
         f"Статус: ❌ не підключено\n\n"
         f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
         f"аніме автоматично додавалось у список "
@@ -816,7 +820,7 @@ async def cb_hikka_logout(c: CallbackQuery):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
-        [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+        [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
     ])
     await safe_edit_text(c.message, text, reply_markup=kb)
 
