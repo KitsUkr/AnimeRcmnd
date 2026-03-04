@@ -130,7 +130,7 @@ class HikkaAuth:
         підтверджує доступ для нашого клієнта, і Hikka перенаправляє 
         його назад на endpoint (deep link в бота) з request_reference.
         """
-        return f"https://hikka.io/oauth?reference={self.client_reference}&scope=readlist"
+        return f"https://hikka.io/oauth?reference={self.client_reference}&scope=watchlist"
 
     async def exchange_token(self, request_reference: str) -> Optional[str]:
         """
