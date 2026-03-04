@@ -50,3 +50,6 @@ class RatingCB(CallbackData, prefix="rating"):
 
 class HikkaCB(CallbackData, prefix="hikka"):
     action: str  # login, logout, status
+
+class SettingsCB(CallbackData, prefix="settings"):
+    action: str  # menu, back
