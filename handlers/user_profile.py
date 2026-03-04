@@ -7,8 +7,9 @@ from database.connection import db, transaction
 import json
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION
 from aiogram.types import InputMediaPhoto
-from utils.callbacks import MenuCB
+from utils.callbacks import MenuCB, HikkaCB
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+from api.hikka_auth import HikkaAuth, get_hikka_token, delete_hikka_token, is_hikka_logged_in
 
 router = Router()
 
@@ -200,15 +201,15 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     else:
         await target.answer(text, reply_markup=kb_profile())
 
-def kb_profile() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="❤️ Обрані", callback_data="prof:likes_open:0")],
-            [InlineKeyboardButton(text="📜 Історія рекомендацій", callback_data=MenuCB(action="history").pack())],
-            [InlineKeyboardButton(text="🧹 Очистити", callback_data="prof:clear_menu")],
-            [InlineKeyboardButton(text="« Назад", callback_data="start:back")],
-        ]
-    )
+def kb_profile(user_id: int = None) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="❤️ Обрані", callback_data="prof:likes_open:0")],
+        [InlineKeyboardButton(text="📜 Історія рекомендацій", callback_data=MenuCB(action="history").pack())],
+        [InlineKeyboardButton(text="🔗 Hikka", callback_data=HikkaCB(action="status").pack())],
+        [InlineKeyboardButton(text="🧹 Очистити", callback_data="prof:clear_menu")],
+        [InlineKeyboardButton(text="« Назад", callback_data="start:back")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kb_profile_clear_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -731,4 +732,91 @@ async def prof_clear_history(c: CallbackQuery):
 @router.callback_query(F.data == "prof:noop")
 async def prof_noop(c: CallbackQuery):
     await c.answer()
+
+
+# =========================
+# Hikka OAuth handlers
+# =========================
+
+@router.callback_query(HikkaCB.filter(F.action == "status"))
+async def cb_hikka_status(c: CallbackQuery):
+    """Показує статус підключення до Hikka"""
+    user_id = c.from_user.id
+    token_data = get_hikka_token(user_id)
+
+    if token_data:
+        token, username = token_data
+        name_display = f"<b>{username}</b>" if username else "підключено"
+        text = (
+            f"🔗 <b>Hikka</b>\n\n"
+            f"Статус: ✅ {name_display}\n\n"
+            f"При натисканні ❤️ аніме автоматично додається "
+            f"у <b>Заплановані</b> на Hikka."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚪 Вийти з Hikka", callback_data=HikkaCB(action="logout").pack())],
+            [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+        ])
+    else:
+        text = (
+            f"🔗 <b>Hikka</b>\n\n"
+            f"Статус: ❌ не підключено\n\n"
+            f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
+            f"аніме автоматично додавалось у список "
+            f"<b>Заплановані</b> на hikka.io."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
+            [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+        ])
+
+    await c.answer()
+    await safe_edit_text(c.message, text, reply_markup=kb)
+
+
+@router.callback_query(HikkaCB.filter(F.action == "login"))
+async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
+    """Надсилає юзеру URL для авторизації на Hikka"""
+    if not hikka_auth.is_configured:
+        await c.answer("Налаштування Hikka OAuth не знайдено.", show_alert=True)
+        return
+
+    auth_url = hikka_auth.get_auth_url()
+    text = (
+        f"🔑 <b>Вхід в Hikka</b>\n\n"
+        f"1️⃣ Натисни кнопку нижче і увійди в свій акаунт на Hikka\n"
+        f"2️⃣ Підтверди доступ для бота\n"
+        f"3️⃣ Тебе перенаправить назад в бота автоматично\n\n"
+        f"<i>Після авторизації аніме з ❤️ буде синхронізуватись "
+        f"зі списком \"\u0417\u0430\u043f\u043b\u0430\u043d\u043e\u0432\u0430\u043d\u0456\" \u043d\u0430 Hikka.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Відкрити Hikka", url=auth_url)],
+        [InlineKeyboardButton(text="« Назад", callback_data=HikkaCB(action="status").pack())],
+    ])
+
+    await c.answer()
+    await safe_edit_text(c.message, text, reply_markup=kb)
+
+
+@router.callback_query(HikkaCB.filter(F.action == "logout"))
+async def cb_hikka_logout(c: CallbackQuery):
+    """Видаляє Hikka токен (logout)"""
+    user_id = c.from_user.id
+    delete_hikka_token(user_id)
+    await c.answer("Вийшли з Hikka ✅", show_alert=True)
+
+    # Показуємо оновлений статус
+    text = (
+        f"🔗 <b>Hikka</b>\n\n"
+        f"Статус: ❌ не підключено\n\n"
+        f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
+        f"аніме автоматично додавалось у список "
+        f"<b>Заплановані</b> на hikka.io."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
+        [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+    ])
+    await safe_edit_text(c.message, text, reply_markup=kb)
 
