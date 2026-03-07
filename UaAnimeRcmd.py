@@ -796,7 +796,7 @@ def kb_settings() -> InlineKeyboardMarkup:
     """Клавіатура меню Налаштувань"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Hikka", icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
+            [InlineKeyboardButton(text="Прив'язати акаунт Hikka", icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
             [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="back").pack())],
         ]
     )
