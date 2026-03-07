@@ -11,6 +11,7 @@ from database.connection import db, transaction
 from utils.callbacks import RatingCB
 from utils.ui_shared import Anime, format_caption, kb_for_anime
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+import texts as t
 
 router = Router()
 
@@ -94,10 +95,10 @@ def kb_rating_filter(rating_min: Optional[float]) -> InlineKeyboardMarkup:
 
     # Дії
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити", callback_data=RatingCB(action="clear").pack()),
+        InlineKeyboardButton(text=t.BTN_CLEAR_FILTER, callback_data=RatingCB(action="clear").pack()),
     ])
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="start:filters"),
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:filters"),
     ])
 
     return kb
@@ -107,11 +108,7 @@ def get_rating_menu_text(rating_min: Optional[float]) -> str:
     """Текст меню вибору рейтингу"""
     status = f"від {rating_min}" if rating_min is not None else "не вибрано"
 
-    return (
-        f"⭐ <b>Фільтр по рейтингу</b>\n\n"
-        f"Поточний вибір: <i>{status}</i>\n\n"
-        "Показувати тільки аніме з рейтингом (оцінкою) не нижче обраного значення."
-    )
+    return t.RATING_MENU_TEXT.format(status=status)
 
 
 # ==================== Handlers ====================
@@ -166,7 +163,7 @@ async def cb_rating_clear(c: CallbackQuery):
     kb = kb_rating_filter(None)
 
     await safe_edit_text(c.message, text, reply_markup=kb)
-    await c.answer("Фільтр рейтингу очищено! ✨", show_alert=True)
+    await c.answer(t.ALERT_RATING_FILTER_CLEARED, show_alert=True)
 
 
 @router.callback_query(RatingCB.filter(F.action == "recommend"))

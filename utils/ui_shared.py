@@ -3,6 +3,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+import texts as t
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -137,10 +138,10 @@ def format_caption(a: Anime, max_length: int = MAX_CAPTION) -> str:
     from handlers.filters.content import get_name_by_slug
     year = f" ({a.year})" if a.year else ""
     score = f"⭐ <b>{a.score:.1f}</b>" if isinstance(a.score, float) else ""
-    eps = f" • <b>{a.episodes_total}</b> еп." if a.episodes_total else ""
+    eps = f" • <b>{a.episodes_total}</b> {t.CAPTION_EPISODES}" if a.episodes_total else ""
     ctype = f" • {get_name_by_slug(a.content_type)}" if a.content_type else ""
-    genres = f"\n\nЖанри: <i>{', '.join(a.genres)}</i>" if a.genres else ""
-    link_line = f"\n🔎 <a href=\"{a.hikka_url}\">Сторінка на Hikka</a>" if a.hikka_url else ""
+    genres = f"\n\n{t.CAPTION_GENRES_LABEL} <i>{', '.join(a.genres)}</i>" if a.genres else ""
+    link_line = f"\n<a href=\"{a.hikka_url}\">{t.CAPTION_HIKKA_LINK}</a>" if a.hikka_url else ""
 
     base = (
         f"<b>{a.title}</b>{year}\n"
@@ -155,8 +156,8 @@ def format_caption(a: Anime, max_length: int = MAX_CAPTION) -> str:
     # Calculate visible length (without HTML tags)
     synopsis_visible_len = visible_len(synopsis_html)
 
-    synopsis_prefix_short = "\n\n<i>📖 Синопсис:</i> "
-    synopsis_prefix_long = "\n\n<i>📖 Синопсис:</i>\n<blockquote expandable>"
+    synopsis_prefix_short = f"\n\n<i>{t.CAPTION_SYNOPSIS_LABEL}</i> "
+    synopsis_prefix_long = f"\n\n<i>{t.CAPTION_SYNOPSIS_LABEL}</i>\n<blockquote expandable>"
     synopsis_suffix_long = "</blockquote>"
 
     used = visible_len(base) + visible_len(link_line)
@@ -181,16 +182,16 @@ from utils.callbacks import AnimeCB, MenuCB
 def kb_for_anime(cb_id: str, has_filter: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton(text="🎲 Ще", callback_data=MenuCB(action="random").pack()),
-            InlineKeyboardButton(text="🤔 Де дивитись", callback_data=AnimeCB(action="watch", id=cb_id).pack())
+            InlineKeyboardButton(text=t.BTN_MORE, callback_data=MenuCB(action="random").pack()),
+            InlineKeyboardButton(text=t.BTN_WHERE_TO_WATCH, callback_data=AnimeCB(action="watch", id=cb_id).pack())
         ],
         [
-            InlineKeyboardButton(text="❤️ Додати в обране", callback_data=AnimeCB(action="like", id=cb_id).pack())
+            InlineKeyboardButton(text=t.BTN_ADD_FAVORITE, callback_data=AnimeCB(action="like", id=cb_id).pack())
         ]
     ]
     
     if has_filter:
-        rows.append([InlineKeyboardButton(text="⚙️ Змінити фільтр", callback_data="start:filters")])
+        rows.append([InlineKeyboardButton(text=t.BTN_CHANGE_FILTER, callback_data="start:filters")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -212,38 +213,38 @@ def get_filter_alert_text(
     if selected_genres:
         names = [genre_names.get(s, s) for s in selected_genres]
         genre_list = "– " + ", ".join(names)
-        parts.append(f"Ви обрали жанри для пошуку:\n{genre_list}")
+        parts.append(t.FILTER_ALERT_GENRES.format(genre_list=genre_list))
         
     if selected_types:
         names = [type_names.get(s, s) for s in selected_types]
         type_list = "– " + ", ".join(names)
-        parts.append(f"Ви обрали тип контенту для пошуку:\n{type_list}")
+        parts.append(t.FILTER_ALERT_TYPES.format(type_list=type_list))
         
     if excluded_genres:
         names = [genre_names.get(s, s) for s in excluded_genres]
         genre_list = "– " + ", ".join(names)
-        parts.append(f"Ви виключили жанри з пошуку:\n{genre_list}")
+        parts.append(t.FILTER_ALERT_EXCLUDED_GENRES.format(genre_list=genre_list))
         
     if excluded_types:
         names = [type_names.get(s, s) for s in excluded_types]
         type_list = "– " + ", ".join(names)
-        parts.append(f"Ви виключили тип контенту з пошуку:\n{type_list}")
+        parts.append(t.FILTER_ALERT_EXCLUDED_TYPES.format(type_list=type_list))
     
     if year_from or year_to:
         if year_from and year_to:
-            parts.append(f"Роки випуску: {year_from} – {year_to}")
+            parts.append(t.FILTER_ALERT_YEARS_RANGE.format(year_from=year_from, year_to=year_to))
         elif year_from:
-            parts.append(f"Роки випуску: від {year_from}")
+            parts.append(t.FILTER_ALERT_YEARS_FROM.format(year_from=year_from))
         else:
-            parts.append(f"Роки випуску: до {year_to}")
+            parts.append(t.FILTER_ALERT_YEARS_TO.format(year_to=year_to))
             
     if seasons:
         names = [season_names.get(s, s) for s in seasons]
         season_list = "– " + ", ".join(names)
-        parts.append(f"Ви обрали сезони для пошуку:\n{season_list}")
+        parts.append(t.FILTER_ALERT_SEASONS.format(season_list=season_list))
 
     if rating_min is not None:
-        parts.append(f"Мінімальний рейтинг: від {rating_min}")
+        parts.append(t.FILTER_ALERT_RATING_MIN.format(rating_min=rating_min))
         
     if not parts:
         return None
@@ -263,22 +264,22 @@ def build_filter_exhausted_message(e) -> str:
     if e.genre_names:
         genre_str = ", ".join(e.genre_names)
         if len(e.genre_names) == 1:
-            parts.append(f"в жанрі <b>{genre_str}</b>")
+            parts.append(t.FILTER_EXHAUSTED_IN_GENRE.format(genres=genre_str))
         else:
-            parts.append(f"у жанрах <b>{genre_str}</b>")
+            parts.append(t.FILTER_EXHAUSTED_IN_GENRES.format(genres=genre_str))
 
     if e.content_types:
-        type_names = [CONTENT_TYPE_MAP.get(t, t) for t in e.content_types]
+        type_names = [CONTENT_TYPE_MAP.get(ct, ct) for ct in e.content_types]
         type_str = ", ".join(type_names)
-        parts.append(f"з типом <b>{type_str}</b>")
+        parts.append(t.FILTER_EXHAUSTED_WITH_TYPE.format(types=type_str))
 
     if e.year_from or e.year_to:
         if e.year_from and e.year_to:
-            parts.append(f"за <b>{e.year_from}–{e.year_to}</b> роки")
+            parts.append(t.FILTER_EXHAUSTED_YEARS_RANGE.format(year_from=e.year_from, year_to=e.year_to))
         elif e.year_from:
-            parts.append(f"від <b>{e.year_from}</b> року")
+            parts.append(t.FILTER_EXHAUSTED_YEARS_FROM.format(year_from=e.year_from))
         else:
-            parts.append(f"до <b>{e.year_to}</b> року")
+            parts.append(t.FILTER_EXHAUSTED_YEARS_TO.format(year_to=e.year_to))
 
     if hasattr(e, 'seasons') and e.seasons:
         # Avoid circular imports but get names if possible
@@ -286,25 +287,15 @@ def build_filter_exhausted_message(e) -> str:
         from handlers.filters.season import SEASON_MAP
         season_names = [SEASON_MAP.get(s, s) for s in e.seasons]
         season_str = ", ".join(season_names)
-        parts.append(f"за сезонами <b>{season_str}</b>")
+        parts.append(t.FILTER_EXHAUSTED_SEASONS.format(seasons=season_str))
 
     if hasattr(e, 'score_min') and e.score_min is not None:
-        parts.append(f"з рейтингом від <b>{e.score_min}</b>")
+        parts.append(t.FILTER_EXHAUSTED_SCORE.format(score_min=e.score_min))
 
     if parts:
         filter_desc = " ".join(parts)
-        msg = (
-            f"🎉 <b>Ого, вітаємо!</b>\n\n"
-            f"Ви вже переглянули все аніме {filter_desc}!\n\n"
-            f"Спробуйте інші фільтри або очистіть поточні — "
-            f"ми обов'язково знайдемо для вас щось нове 😊"
-        )
+        msg = t.FILTER_EXHAUSTED_WITH_DESC.format(filter_desc=filter_desc)
     else:
-        msg = (
-            "🎉 <b>Ого, вітаємо!</b>\n\n"
-            "Ви переглянули все аніме за вашими фільтрами!\n\n"
-            "Спробуйте інші фільтри або очистіть поточні — "
-            "ми обов'язково знайдемо для вас щось нове 😊"
-        )
+        msg = t.FILTER_EXHAUSTED_GENERIC
 
     return msg

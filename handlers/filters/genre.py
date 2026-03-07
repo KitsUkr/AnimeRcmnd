@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 from database.connection import db, transaction
 from utils.ui_shared import Anime, format_caption, kb_for_anime
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+import texts as t
 
 GENRE_MAP: dict[str, str] = {}
 router = Router()
@@ -345,11 +346,11 @@ def kb_genres(included: List[str], excluded: List[str], genres: List[str], page:
 
     # Actions
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити", callback_data=GenreCB(action="clear", mode="unified", page=page).pack()),
+        InlineKeyboardButton(text=t.BTN_CLEAR_FILTER, callback_data=GenreCB(action="clear", mode="unified", page=page).pack()),
     ])
 
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="start:filters"), 
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:filters"), 
     ])
     
     return kb
@@ -362,13 +363,7 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
     
     # Show hint alert on first visit
     if not is_genre_hint_shown(user_id):
-        hint_text = (
-            "💡 Керування жанрами:\n\n"
-            "• 1 клік → ✅ шукати\n"
-            "• 2 кліки → 🚫 виключити\n"
-            "• 3 кліки → скинути\n\n"
-            "Або напишіть назву текстом!"
-        )
+        hint_text = t.GENRE_HINT
         await c.answer(hint_text, show_alert=True)
         set_genre_hint_shown(user_id)
     else:
@@ -377,7 +372,7 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
     # Unified View Entry
     genres = await get_all_genres(hikka_client)
     if not genres:
-        await c.answer("Не вдалося завантажити жанри 😔", show_alert=True)
+        await c.answer(t.ALERT_GENRES_LOAD_ERROR, show_alert=True)
         return
         
     inc = get_selected_genres(user_id)
@@ -387,13 +382,7 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
     snapshot = list(set(inc) | set(exc))
     set_genre_snapshot(user_id, snapshot)
 
-    text = (
-        "⚙️ <b>Керування Жанрами</b>\n\n"
-        "• Натисніть <b>раз</b> (✅), щоб шукати тільки цей жанр.\n"
-        "• Натисніть <b>два</b> (🚫), щоб виключити його.\n"
-        "• Натисніть <b>три</b>, щоб скинути вибір.\n\n"
-        "💡 <i>Або напишіть назву жанру текстом!</i>"
-    )
+    text = t.GENRE_MENU_TEXT
     
     # Using unified mode signature
     kb = kb_genres(included=inc, excluded=exc, genres=genres, page=0, snapshot_slugs=snapshot)
@@ -429,7 +418,7 @@ async def cb_toggle_genre(c: CallbackQuery, callback_data: GenreCB, hikka_client
     # sid is ignored
     
     if not slug:
-        await c.answer("Помилка: відсутній жанр")
+        await c.answer(t.ALERT_GENRE_MISSING)
         return
     
     # Unified toggle
@@ -462,7 +451,7 @@ async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client)
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=[], excluded=[], genres=genres, page=page, snapshot_slugs=[]))
     
-    await c.answer("Всі фільтри скинуто! ✨", show_alert=True)
+    await c.answer(t.ALERT_GENRE_FILTERS_CLEARED, show_alert=True)
 
 
 @router.callback_query(GenreCB.filter(F.action == "back"))
@@ -485,7 +474,7 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     selected_slugs = get_selected_genres(user_id)
     
     if not selected_slugs:
-        await c.answer("Виберіть хоча б один жанр! 😅", show_alert=True)
+        await c.answer(t.ALERT_NEED_AT_LEAST_ONE_GENRE, show_alert=True)
         return
 
     from UaAnimeRcmd import cb_random_anime
@@ -627,13 +616,7 @@ async def handle_genre_text_search(message: Message, hikka_client):
     menu_message_id = get_genre_menu_message_id(user_id)
     if menu_message_id and added:
         genres = await get_all_genres(hikka_client)
-        text = (
-            "⚙️ <b>Керування Жанрами</b>\n\n"
-            "• Натисніть <b>раз</b> (✅), щоб шукати тільки цей жанр.\n"
-            "• Натисніть <b>два</b> (🚫), щоб виключити його.\n"
-            "• Натисніть <b>три</b>, щоб скинути вибір.\n\n"
-            "💡 <i>Або напишіть назву жанру текстом!</i>"
-        )
+        text = t.GENRE_MENU_TEXT
         kb = kb_genres(included=inc, excluded=exc, genres=genres, page=0, snapshot_slugs=snapshot)
         
         try:

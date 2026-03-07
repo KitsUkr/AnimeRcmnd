@@ -16,6 +16,7 @@ from database.connection import db, transaction
 from utils.callbacks import YearCB
 from utils.ui_shared import Anime, format_caption, kb_for_anime
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+import texts as t
 
 router = Router()
 
@@ -183,11 +184,11 @@ def kb_year_filter(year_from: Optional[int], year_to: Optional[int], mode: str =
     
     # Дії
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити", callback_data=YearCB(action="clear").pack()),
+        InlineKeyboardButton(text=t.BTN_CLEAR_FILTER, callback_data=YearCB(action="clear").pack()),
     ])
     
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="start:filters"),
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:filters"),
     ])
     
     return kb
@@ -201,14 +202,9 @@ def get_year_menu_text(year_from: Optional[int], year_to: Optional[int]) -> str:
     if year_to:
         status_parts.append(f"до {year_to}")
     
-    status = " ".join(status_parts) if status_parts else "не вибрано"
+    status = " ".join(status_parts) if status_parts else t.YEAR_STATUS_NOT_SELECTED
     
-    return (
-        f"📅 <b>Фільтр по рокам</b>\n\n"
-        f"Поточний вибір: <i>{status}</i>\n\n"
-        "• Натисніть <b>Від</b> щоб вибрати початковий рік\n"
-        "• Натисніть <b>До</b> щоб вибрати кінцевий рік"
-    )
+    return t.YEAR_MENU_TEXT.format(status=status)
 
 
 # ==================== Handlers ====================
@@ -338,7 +334,7 @@ async def cb_year_clear(c: CallbackQuery):
     kb = kb_year_filter(None, None, mode="from", page=0)
     
     await safe_edit_text(c.message, text, reply_markup=kb)
-    await c.answer("Фільтр років очищено! ✨", show_alert=True)
+    await c.answer(t.ALERT_YEAR_FILTER_CLEARED, show_alert=True)
 
 
 @router.callback_query(YearCB.filter(F.action == "recommend"))

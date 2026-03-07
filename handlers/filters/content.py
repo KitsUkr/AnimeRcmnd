@@ -10,6 +10,7 @@ from database.connection import db, transaction
 from utils.callbacks import ContentTypeCB, MenuCB
 from utils.ui_shared import Anime, format_caption, kb_for_anime
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+import texts as t
 
 router = Router()
 
@@ -167,10 +168,10 @@ def kb_content_types(included: List[str], excluded: List[str]) -> InlineKeyboard
     
     # Кнопки дій
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити", callback_data=ContentTypeCB(action="clear").pack()),
+        InlineKeyboardButton(text=t.BTN_CLEAR_FILTER, callback_data=ContentTypeCB(action="clear").pack()),
     ])
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="start:filters"),
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:filters"),
     ])
     
     return kb
@@ -184,12 +185,7 @@ async def cb_open_content_types(c: CallbackQuery):
     inc = get_selected_content_types(c.from_user.id)
     exc = get_excluded_content_types(c.from_user.id)
     
-    text = (
-        "🎬 <b>Керування Типами Контенту</b>\n\n"
-        "• Натисніть <b>раз</b> (✅), щоб шукати тільки цей тип.\n"
-        "• Натисніть <b>два</b> (🚫), щоб виключити його.\n"
-        "• Натисніть <b>три</b>, щоб скинути вибір."
-    )
+    text = t.CONTENT_TYPE_MENU_TEXT
     
     kb = kb_content_types(included=inc, excluded=exc)
     
@@ -205,7 +201,7 @@ async def cb_toggle_content_type(c: CallbackQuery, callback_data: ContentTypeCB)
     slug = callback_data.slug
     
     if not slug:
-        await c.answer("Помилка: відсутній тип контенту")
+        await c.answer(t.ALERT_CONTENT_TYPE_MISSING)
         return
     
     toggle_content_type_slug(c.from_user.id, slug)
@@ -227,7 +223,7 @@ async def cb_content_type_clear(c: CallbackQuery):
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_content_types(included=[], excluded=[]))
     
-    await c.answer("Всі фільтри скинуто! ✨")
+    await c.answer(t.ALERT_CONTENT_TYPE_CLEARED)
 
 @router.callback_query(ContentTypeCB.filter(F.action == "recommend"))
 async def cb_content_type_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):

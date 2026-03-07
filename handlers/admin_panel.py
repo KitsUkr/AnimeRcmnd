@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from database.connection import db
 from utils.callbacks import AdminCB, AdCampaignCB
 from utils.safe_edit import safe_edit_text
+import texts as t
 
 router = Router()
 
@@ -231,16 +232,15 @@ def _get_admin_stats() -> dict:
 
 
 def _format_admin_text(s: dict) -> str:
-    text = (
-        "🛠 <b>Admin panel</b>\n\n"
-        f"👥 Учасників (всього): <b>{s['total_users']}</b>\n"
-        f"✅ Активних за 24год: <b>{s['active_24h']}</b>\n"
-        f"✅ Активних за 7д: <b>{s['active_7d']}</b>\n\n"
-        f"🎲 Рекомендацій видано: <b>{s['recs_total']}</b>\n"
-        f"📺 Унікальних тайтлів показували: <b>{s['uniq_titles_seen']}</b>\n\n"
-        f"👍 Лайків: <b>{s['likes_total']}</b>\n\n"
-        f"📊 Аніме в базі: <b>{s['total_in_base'] if s['total_in_base'] is not None else '—'}</b>\n"
-        f"📢 Прийшли з реклами: <b>{s['ad_users_total']}</b>\n"
+    text = t.ADMIN_PANEL_TEXT.format(
+        total_users=s['total_users'],
+        active_24h=s['active_24h'],
+        active_7d=s['active_7d'],
+        recs_total=s['recs_total'],
+        uniq_titles_seen=s['uniq_titles_seen'],
+        likes_total=s['likes_total'],
+        total_in_base=s['total_in_base'] if s['total_in_base'] is not None else '—',
+        ad_users_total=s['ad_users_total'],
     )
     return text
 
@@ -249,9 +249,9 @@ def kb_admin_panel() -> InlineKeyboardMarkup:
     """Клавіатура для адмін-панелі"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Оновити статистику", callback_data=AdminCB(action="refresh_stats").pack())],
-            [InlineKeyboardButton(text="📢 Рекламні кампанії", callback_data=AdCampaignCB(action="list").pack())],
-            [InlineKeyboardButton(text="🔄 Синхронізувати бібліотеку", callback_data=AdminCB(action="force_sync").pack())],
+            [InlineKeyboardButton(text=t.BTN_REFRESH_STATS, callback_data=AdminCB(action="refresh_stats").pack())],
+            [InlineKeyboardButton(text=t.BTN_AD_CAMPAIGNS, callback_data=AdCampaignCB(action="list").pack())],
+            [InlineKeyboardButton(text=t.BTN_SYNC_LIBRARY, callback_data=AdminCB(action="force_sync").pack())],
         ]
     )
 
@@ -284,16 +284,16 @@ async def cb_admin_refresh_stats(c: CallbackQuery):
     """Обновлення статистики в адмін-панелі"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
     
-    await c.answer("Оновлюю статистику...")
+    await c.answer(t.ALERT_REFRESHING_STATS)
     
     s = _get_admin_stats()
     text = _format_admin_text(s)
     
     await safe_edit_text(c.message, text, reply_markup=kb_admin_panel())
-    await c.answer("Статистика оновлена ✅", show_alert=False)
+    await c.answer(t.ALERT_STATS_REFRESHED, show_alert=False)
 
 
 # ==================
@@ -305,16 +305,16 @@ async def cb_ad_campaigns_list(c: CallbackQuery):
     """Список рекламних кампаній"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
 
     await c.answer()
     stats = get_ad_stats()
 
     if not stats:
-        text = "📢 <b>Рекламні кампанії</b>\n\nПоки що немає жодної кампанії."
+        text = t.AD_CAMPAIGNS_EMPTY
     else:
-        text = "📢 <b>Рекламні кампанії</b>\n\n"
+        text = f"{t.AD_CAMPAIGNS_TITLE}\n\n"
         for s in stats:
             text += (
                 f"▫️ <b>{s['label']}</b> (<code>{s['campaign_id']}</code>)\n"
@@ -334,13 +334,13 @@ async def cb_ad_campaigns_list(c: CallbackQuery):
         ])
     buttons.append([
         InlineKeyboardButton(
-            text="➕ Додати кампанію", 
+            text=t.BTN_ADD_CAMPAIGN, 
             callback_data=AdCampaignCB(action="create").pack()
         )
     ])
     buttons.append([
         InlineKeyboardButton(
-            text="« Назад", 
+            text=t.BTN_BACK, 
             callback_data=AdminCB(action="refresh_stats").pack()
         )
     ])
@@ -353,7 +353,7 @@ async def cb_ad_campaign_detail(c: CallbackQuery, callback_data: AdCampaignCB):
     """Деталі кампанії + deep link"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
 
     await c.answer()
@@ -368,7 +368,7 @@ async def cb_ad_campaign_detail(c: CallbackQuery, callback_data: AdCampaignCB):
             break
 
     if not campaign:
-        await c.answer("Кампанію не знайдено", show_alert=True)
+        await c.answer(t.ALERT_CAMPAIGN_NOT_FOUND, show_alert=True)
         return
 
     # Отримуємо username бота
@@ -378,19 +378,18 @@ async def cb_ad_campaign_detail(c: CallbackQuery, callback_data: AdCampaignCB):
 
     deep_link = f"https://t.me/{bot_username}?start=ad_{campaign_id}"
 
-    text = (
-        f"📢 <b>{campaign['label']}</b>\n\n"
-        f"🆔 ID: <code>{campaign_id}</code>\n\n"
-        f"👥 Всього користувачів: <b>{campaign['total_users']}</b>\n"
-        f"📈 За 24 години: <b>{campaign['users_24h']}</b>\n"
-        f"📈 За 7 днів: <b>{campaign['users_7d']}</b>\n\n"
-        f"🔗 <b>Deep link для реклами:</b>\n"
-        f"<code>{deep_link}</code>\n"
+    text = t.AD_CAMPAIGN_DETAIL.format(
+        label=campaign['label'],
+        campaign_id=campaign_id,
+        total_users=campaign['total_users'],
+        users_24h=campaign['users_24h'],
+        users_7d=campaign['users_7d'],
+        deep_link=deep_link,
     )
 
     buttons = [
-        [InlineKeyboardButton(text="🗑 Видалити кампанію", callback_data=AdCampaignCB(action="confirm_delete", campaign_id=campaign_id).pack())],
-        [InlineKeyboardButton(text="« Назад до списку", callback_data=AdCampaignCB(action="list").pack())],
+        [InlineKeyboardButton(text=t.BTN_DELETE_CAMPAIGN, callback_data=AdCampaignCB(action="confirm_delete", campaign_id=campaign_id).pack())],
+        [InlineKeyboardButton(text=t.BTN_BACK_TO_LIST, callback_data=AdCampaignCB(action="list").pack())],
     ]
 
     await safe_edit_text(c.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
@@ -401,18 +400,18 @@ async def cb_ad_campaign_confirm_delete(c: CallbackQuery, callback_data: AdCampa
     """Підтвердження видалення кампанії"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
 
     await c.answer()
     campaign_id = callback_data.campaign_id
 
-    text = f"⚠️ Ви впевнені, що хочете видалити кампанію <code>{campaign_id}</code>?\n\n<i>Дані про джерело у користувачів збережуться.</i>"
+    text = t.AD_CAMPAIGN_CONFIRM_DELETE.format(campaign_id=campaign_id)
     
     buttons = [
         [
-            InlineKeyboardButton(text="✅ Так, видалити", callback_data=AdCampaignCB(action="delete", campaign_id=campaign_id).pack()),
-            InlineKeyboardButton(text="❌ Скасувати", callback_data=AdCampaignCB(action="detail", campaign_id=campaign_id).pack()),
+            InlineKeyboardButton(text=t.BTN_YES_DELETE, callback_data=AdCampaignCB(action="delete", campaign_id=campaign_id).pack()),
+            InlineKeyboardButton(text=t.BTN_CANCEL, callback_data=AdCampaignCB(action="detail", campaign_id=campaign_id).pack()),
         ],
     ]
 
@@ -424,21 +423,21 @@ async def cb_ad_campaign_delete(c: CallbackQuery, callback_data: AdCampaignCB):
     """Видалення кампанії"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
 
     campaign_id = callback_data.campaign_id
     delete_campaign(campaign_id)
 
-    await c.answer(f"Кампанію '{campaign_id}' видалено ✅", show_alert=True)
+    await c.answer(t.AD_CAMPAIGN_DELETED.format(campaign_id=campaign_id), show_alert=True)
 
     # Повертаємось до списку — повторюємо логіку списку
     stats = get_ad_stats()
 
     if not stats:
-        text = "📢 <b>Рекламні кампанії</b>\n\nПоки що немає жодної кампанії."
+        text = t.AD_CAMPAIGNS_EMPTY
     else:
-        text = "📢 <b>Рекламні кампанії</b>\n\n"
+        text = f"{t.AD_CAMPAIGNS_TITLE}\n\n"
         for s in stats:
             text += (
                 f"▫️ <b>{s['label']}</b> (<code>{s['campaign_id']}</code>)\n"
@@ -455,8 +454,8 @@ async def cb_ad_campaign_delete(c: CallbackQuery, callback_data: AdCampaignCB):
                 callback_data=AdCampaignCB(action="detail", campaign_id=s["campaign_id"]).pack()
             )
         ])
-    buttons.append([InlineKeyboardButton(text="➕ Додати кампанію", callback_data=AdCampaignCB(action="create").pack())])
-    buttons.append([InlineKeyboardButton(text="« Назад", callback_data=AdminCB(action="refresh_stats").pack())])
+    buttons.append([InlineKeyboardButton(text=t.BTN_ADD_CAMPAIGN, callback_data=AdCampaignCB(action="create").pack())])
+    buttons.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data=AdminCB(action="refresh_stats").pack())])
 
     await safe_edit_text(c.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
@@ -466,18 +465,13 @@ async def cb_ad_campaign_create(c: CallbackQuery, state: FSMContext):
     """Початок створення кампанії — запит ID"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
 
     await c.answer()
 
-    text = (
-        "➕ <b>Нова рекламна кампанія</b>\n\n"
-        "Надішліть <b>ID кампанії</b> (латиниця, цифри, підкреслення).\n"
-        "Наприклад: <code>instagram_feb</code>\n\n"
-        "<i>Або натисніть «Скасувати»</i>"
-    )
-    buttons = [[InlineKeyboardButton(text="❌ Скасувати", callback_data=AdCampaignCB(action="list").pack())]]
+    text = t.AD_CAMPAIGN_FSM_ASK_ID
+    buttons = [[InlineKeyboardButton(text=t.BTN_CANCEL, callback_data=AdCampaignCB(action="list").pack())]]
 
     await safe_edit_text(c.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await state.set_state(AddCampaignStates.waiting_for_id)
@@ -495,23 +489,16 @@ async def fsm_campaign_id(m: Message, state: FSMContext):
 
     # Валідація: тільки латиниця, цифри, _, -
     if not re.match(r"^[a-zA-Z0-9_\-]+$", campaign_id):
-        await m.answer(
-            "⚠️ ID може містити лише латиницю, цифри, <code>_</code> та <code>-</code>.\n"
-            "Спробуйте ще раз:"
-        )
+        await m.answer(t.AD_CAMPAIGN_FSM_INVALID_ID)
         return
 
     if len(campaign_id) > 50:
-        await m.answer("⚠️ ID занадто довгий (макс. 50 символів). Спробуйте ще раз:")
+        await m.answer(t.AD_CAMPAIGN_FSM_ID_TOO_LONG)
         return
 
     await state.update_data(campaign_id=campaign_id)
     await state.set_state(AddCampaignStates.waiting_for_label)
-    await m.answer(
-        f"Добре, ID: <code>{campaign_id}</code>\n\n"
-        "Тепер надішліть <b>назву</b> кампанії (довільний текст).\n"
-        "Наприклад: <i>Реклама в інстаграм лютий</i>"
-    )
+    await m.answer(t.AD_CAMPAIGN_FSM_ASK_LABEL.format(campaign_id=campaign_id))
 
 
 @router.message(AddCampaignStates.waiting_for_label)
@@ -524,7 +511,7 @@ async def fsm_campaign_label(m: Message, state: FSMContext):
 
     label = m.text.strip()
     if not label or len(label) > 100:
-        await m.answer("⚠️ Назва не може бути порожньою або довшою за 100 символів. Спробуйте ще:")
+        await m.answer(t.AD_CAMPAIGN_FSM_LABEL_INVALID)
         return
 
     data = await state.get_data()
@@ -539,9 +526,9 @@ async def fsm_campaign_label(m: Message, state: FSMContext):
     deep_link = f"https://t.me/{bot_username}?start=ad_{campaign_id}"
 
     await m.answer(
-        f"✅ Кампанію створено!\n\n"
-        f"📢 <b>{label}</b>\n"
-        f"🆔 ID: <code>{campaign_id}</code>\n\n"
-        f"🔗 Deep link:\n<code>{deep_link}</code>\n\n"
-        f"Використовуйте /admin щоб переглянути статистику."
+        t.AD_CAMPAIGN_CREATED.format(
+            label=label,
+            campaign_id=campaign_id,
+            deep_link=deep_link,
+        )
     )

@@ -6,6 +6,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from database.connection import db, transaction
 import json
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION
+import texts as t
 from aiogram.types import InputMediaPhoto
 from utils.callbacks import MenuCB, HikkaCB, SettingsCB
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
@@ -134,17 +135,17 @@ def kb_likes_photo(idx: int, total: int, has_watch: bool) -> InlineKeyboardMarku
 
     if has_watch:
         kb.inline_keyboard.append([
-            InlineKeyboardButton(text="🤔 Де дивитись", callback_data=f"prof:likes_watch:{idx}")
+            InlineKeyboardButton(text=t.BTN_WHERE_TO_WATCH, callback_data=f"prof:likes_watch:{idx}")
         ])
 
     kb.inline_keyboard.append(nav)
 
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Видалити", callback_data=f"prof:unlike:{idx}")
+        InlineKeyboardButton(text=t.BTN_DELETE, callback_data=f"prof:unlike:{idx}")
     ])
 
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="prof:likes_close")
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:likes_close")
     ])
 
     return kb
@@ -171,7 +172,7 @@ def unlike_title(user_id: int, anime_id: str) -> None:
 
 async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     if target.chat.type != "private":
-        msg = "👤 Профіль доступний тільки в особистому чаті з ботом."
+        msg = t.PROFILE_PRIVATE_ONLY
         if edit:
             await safe_edit_text(target, msg)
         else:
@@ -181,12 +182,11 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     stats = get_user_stats(user_id)
     total = get_total_translated_titles()
 
-    text = (
-        "👤 <b>Твій профіль</b>\n\n"
-        f"🆔 ID: <code>{user_id}</code>\n\n"
-        f"🎲 Рекомендацій отримано: <b>{stats['seen']}</b>\n"
-        f"📊 Усього аніме в базі: <b>{total}</b>\n\n"
-        f"❤️ Додано в обрані: <b>{stats['likes']}</b>\n"
+    text = t.PROFILE_TEXT.format(
+        user_id=user_id,
+        seen=stats['seen'],
+        total=total,
+        likes=stats['likes'],
     )
 
     if edit:
@@ -203,19 +203,19 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
 
 def kb_profile(user_id: int = None) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="❤️ Обрані", callback_data="prof:likes_open:0")],
-        [InlineKeyboardButton(text="📜 Історія рекомендацій", callback_data=MenuCB(action="history").pack())],
-        [InlineKeyboardButton(text="🧹 Очистити", callback_data="prof:clear_menu")],
-        [InlineKeyboardButton(text="« Назад", callback_data="start:back")],
+        [InlineKeyboardButton(text=t.BTN_FAVORITES, callback_data="prof:likes_open:0")],
+        [InlineKeyboardButton(text=t.BTN_HISTORY, callback_data=MenuCB(action="history").pack())],
+        [InlineKeyboardButton(text=t.BTN_CLEAR, callback_data="prof:clear_menu")],
+        [InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:back")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kb_profile_clear_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="❤️ Очистити обрані", callback_data="prof:clear_likes")],
-            [InlineKeyboardButton(text="📜 Очистити історію", callback_data="prof:clear_history")],
-            [InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")],
+            [InlineKeyboardButton(text=t.BTN_CLEAR_FAVORITES, callback_data="prof:clear_likes")],
+            [InlineKeyboardButton(text=t.BTN_CLEAR_HISTORY, callback_data="prof:clear_history")],
+            [InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")],
         ]
     )
 
@@ -237,7 +237,7 @@ def kb_likes_pager(idx: int, total: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
     kb.inline_keyboard.append(row)
 
-    kb.inline_keyboard.append([InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")])
     return kb
 
 def kb_likes_view(idx: int, total: int) -> InlineKeyboardMarkup:
@@ -258,8 +258,8 @@ def kb_likes_view(idx: int, total: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[])
     kb.inline_keyboard.append(nav)
 
-    kb.inline_keyboard.append([InlineKeyboardButton(text="🤔 Де дивитись", callback_data=f"prof:likes_watch:{idx}")])
-    kb.inline_keyboard.append([InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_WHERE_TO_WATCH, callback_data=f"prof:likes_watch:{idx}")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")])
     return kb
 
 def render_like_card(s: dict) -> str:
@@ -272,7 +272,7 @@ def render_like_card(s: dict) -> str:
     link_line = f"\n\n🔎 <a href=\"{html.escape(s['hikka_url'])}\">Сторінка на Hikka</a>" if s.get("hikka_url") else ""
 
     base = (
-        f"❤️ <b>Обрані тайтли</b>\n\n"
+        f"{t.FAVORITES_TITLE}\n\n"
         f"<b>{html.escape(s['title'])}</b>{year}\n"
         f"{score}{eps}{ctype}"
         f"{genres}"
@@ -290,9 +290,9 @@ async def show_liked(target: Message, user_id: int, idx: int):
     total = get_liked_count(user_id)
     if total <= 0:
         await safe_edit_text(target,
-            "❤️ <b>Обрані тайтли</b>\n\nСписок обраних пуст 💔",
+            t.FAVORITES_EMPTY,
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
+                inline_keyboard=[[InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")]]
             ),
         )
         return
@@ -301,9 +301,9 @@ async def show_liked(target: Message, user_id: int, idx: int):
     snap = get_liked_snapshot(user_id, idx)
     if not snap:
         await safe_edit_text(target,
-            "❤️ <b>Обрані тайтли</b>\n\nНе вдалося завантажити.",
+            t.FAVORITES_LOAD_ERROR,
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
+                inline_keyboard=[[InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")]]
             ),
         )
         return
@@ -349,9 +349,9 @@ def kb_likes_watch(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup:
 
         # Кнопка торрентів якщо є і звичайні, і Толока
         if has_toloka:
-            kb.inline_keyboard.append([InlineKeyboardButton(text="📥 Торренти", callback_data=f"prof:likes_torrents:{idx}")])
+            kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_TORRENTS, callback_data=f"prof:likes_torrents:{idx}")])
 
-    kb.inline_keyboard.append([InlineKeyboardButton(text="« Назад", callback_data=f"prof:likes_photo:{idx}")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data=f"prof:likes_photo:{idx}")])
     return kb
 
 
@@ -371,7 +371,7 @@ def kb_likes_torrents(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup
             text_btn = text_btn[:57] + "..."
         kb.inline_keyboard.append([InlineKeyboardButton(text=f"• {text_btn}", url=url)])
 
-    kb.inline_keyboard.append([InlineKeyboardButton(text="« Назад", callback_data=f"prof:likes_watch:{idx}")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data=f"prof:likes_watch:{idx}")])
     return kb
 
 async def open_likes_viewer(c: CallbackQuery, idx: int):
@@ -379,13 +379,13 @@ async def open_likes_viewer(c: CallbackQuery, idx: int):
     total = get_liked_count(user_id)
 
     if total <= 0:
-        await c.answer("Список обраних пуст 💔", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
     snap = get_liked_snapshot(user_id, idx)
     if not snap:
-        await c.answer("Не вдалося завантажити.", show_alert=True)
+        await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
 
     try:
@@ -445,16 +445,16 @@ async def show_liked_title(target: Message, user_id: int, idx: int) -> None:
     row = get_liked_title_at(user_id, idx)
     if not row:
         await safe_edit_text(target,
-            "❤️ <b>Обрані тайтли</b>\n\nНе вдалося завантажити список.",
+            t.FAVORITES_LIST_LOAD_ERROR,
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
+                inline_keyboard=[[InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")]]
             ),
         )
         return
 
     anime_id, title = row
     text = (
-        "❤️ <b>Обрані тайтли</b>\n\n"
+        f"{t.FAVORITES_TITLE}\n\n"
         f"<b>{html.escape(title)}</b>\n"
         f"<code>{html.escape(anime_id)}</code>"
     )
@@ -471,7 +471,7 @@ async def prof_unlike(c: CallbackQuery):
     user_id = c.from_user.id
     total_before = get_liked_count(user_id)
     if total_before <= 0:
-        await c.answer("Список обраних пуст 💔", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     try:
@@ -482,7 +482,7 @@ async def prof_unlike(c: CallbackQuery):
 
     snap = get_liked_snapshot(user_id, idx)
     if not snap:
-        await c.answer("Не вдалося завантажити.", show_alert=True)
+        await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
 
     unlike_title(user_id, snap["anime_id"])
@@ -495,21 +495,21 @@ async def prof_unlike(c: CallbackQuery):
         except Exception:
             pass
 
-        await c.answer("Це було останнє аніме з вашого списку", show_alert=True)
+        await c.answer(t.ALERT_LAST_ANIME_REMOVED, show_alert=True)
 
         chat_id = c.from_user.id
-        m = await c.bot.send_message(chat_id, "👤 Відкриваю профіль…")
+        m = await c.bot.send_message(chat_id, t.OPENING_PROFILE)
         await send_profile(m, c.from_user.id, edit=True)
         return
 
-    await c.answer("Прибрано з обраних ✅")
+    await c.answer(t.ALERT_REMOVED_FROM_FAVORITES)
 
     # Update the view with the next item
     new_idx = min(idx, total_after - 1)
 
     new_snap = get_liked_snapshot(user_id, new_idx)
     if not new_snap:
-        await c.answer("Не вдалося оновити список.", show_alert=True)
+        await c.answer(t.ALERT_UPDATE_LIST_ERROR, show_alert=True)
         return
 
     a = Anime(
@@ -545,7 +545,7 @@ async def prof_likes_photo_pager(c: CallbackQuery):
     user_id = c.from_user.id
     total = get_liked_count(user_id)
     if total <= 0:
-        await c.answer("Список обраних пуст 💔", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     try:
@@ -556,7 +556,7 @@ async def prof_likes_photo_pager(c: CallbackQuery):
 
     snap = get_liked_snapshot(user_id, idx)
     if not snap:
-        await c.answer("Не вдалося завантажити.", show_alert=True)
+        await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
 
     a = Anime(
@@ -594,7 +594,7 @@ async def prof_likes_close(c: CallbackQuery):
         pass
 
     chat_id = c.from_user.id
-    m = await c.bot.send_message(chat_id, "👤 Відкриваю профіль…")
+    m = await c.bot.send_message(chat_id, t.OPENING_PROFILE)
     await send_profile(m, c.from_user.id, edit=True)
 
 
@@ -619,13 +619,13 @@ async def prof_likes_watch(c: CallbackQuery):
 
     total = get_liked_count(c.from_user.id)
     if total <= 0:
-        await c.answer("Список обраних пуст 💔", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
     snap = get_liked_snapshot(c.from_user.id, idx)
     if not snap or not snap.get("watch_links"):
-        await c.answer("Українських ресурсів не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_NO_UA_RESOURCES, show_alert=True)
         return
 
     await c.answer()
@@ -647,13 +647,13 @@ async def prof_likes_torrents(c: CallbackQuery):
 
     total = get_liked_count(c.from_user.id)
     if total <= 0:
-        await c.answer("Список обраних пуст 💔", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
     snap = get_liked_snapshot(c.from_user.id, idx)
     if not snap or not snap.get("watch_links"):
-        await c.answer("Торрент-посилань не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_NO_TORRENT_LINKS, show_alert=True)
         return
 
     # Фільтруємо тільки Toloka
@@ -663,7 +663,7 @@ async def prof_likes_torrents(c: CallbackQuery):
     ]
     
     if not torrent_links:
-        await c.answer("Торрент-посилань не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_NO_TORRENT_LINKS, show_alert=True)
         return
 
     await c.answer()
@@ -704,11 +704,11 @@ async def prof_back_to_profile(c: CallbackQuery):
 async def prof_clear_likes(c: CallbackQuery):
     count = clear_likes(c.from_user.id)
     if count > 0:
-        await c.answer("Список обраних очищено✅", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_CLEARED, show_alert=True)
         if c.message:
             await send_profile(c.message, c.from_user.id, edit=True)
     else:
-        await c.answer("Список обраних вже порожній 🤷‍♂️", show_alert=True)
+        await c.answer(t.ALERT_FAVORITES_ALREADY_EMPTY, show_alert=True)
 
 def clear_user_history(user_id: int) -> int:
     # Транзакція гарантує: або ВСЕ видалиться, або НІЧОГО (якщо помилка)
@@ -722,11 +722,11 @@ def clear_user_history(user_id: int) -> int:
 async def prof_clear_history(c: CallbackQuery):
     count = clear_user_history(c.from_user.id)
     if count > 0:
-        await c.answer("Історію очищено ✅", show_alert=True)
+        await c.answer(t.ALERT_HISTORY_CLEARED, show_alert=True)
         if c.message:
             await send_profile(c.message, c.from_user.id, edit=True)
     else:
-        await c.answer("Історія рекомендацій вже порожня 🤷‍♂️", show_alert=True)
+        await c.answer(t.ALERT_HISTORY_ALREADY_EMPTY, show_alert=True)
 
 @router.callback_query(F.data == "prof:noop")
 async def prof_noop(c: CallbackQuery):
@@ -746,27 +746,16 @@ async def cb_hikka_status(c: CallbackQuery):
     if token_data:
         token, username = token_data
         name_display = f"<b>{username}</b>" if username else "підключено"
-        text = (
-            f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
-            f"Статус: ✅ {name_display}\n\n"
-            f"При натисканні ❤️ аніме автоматично додається "
-            f"у <b>Заплановані</b> на Hikka."
-        )
+        text = t.HIKKA_STATUS_CONNECTED.format(name_display=name_display)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🚪 Вийти з Hikka", callback_data=HikkaCB(action="logout").pack())],
-            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
+            [InlineKeyboardButton(text=t.BTN_HIKKA_LOGOUT, callback_data=HikkaCB(action="logout").pack())],
+            [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="menu").pack())],
         ])
     else:
-        text = (
-            f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
-            f"Статус: ❌ не підключено\n\n"
-            f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
-            f"аніме автоматично додавалось у список "
-            f"<b>Заплановані</b> на hikka.io."
-        )
+        text = t.HIKKA_STATUS_DISCONNECTED
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
-            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
+            [InlineKeyboardButton(text=t.BTN_HIKKA_LOGIN, callback_data=HikkaCB(action="login").pack())],
+            [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="menu").pack())],
         ])
 
     await c.answer()
@@ -777,21 +766,14 @@ async def cb_hikka_status(c: CallbackQuery):
 async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
     """Надсилає юзеру URL для авторизації на Hikka"""
     if not hikka_auth.is_configured:
-        await c.answer("Налаштування Hikka OAuth не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_HIKKA_NOT_CONFIGURED, show_alert=True)
         return
 
     auth_url = hikka_auth.get_auth_url()
-    text = (
-        f"🔑 <b>Вхід в Hikka</b>\n\n"
-        f"1️⃣ Натисни кнопку нижче і увійди в свій акаунт на Hikka\n"
-        f"2️⃣ Підтверди доступ для бота\n"
-        f"3️⃣ Тебе перенаправить назад в бота автоматично\n\n"
-        f"<i>Після авторизації аніме з ❤️ буде синхронізуватись "
-        f'зі списком "Заплановані" на Hikka.</i>'
-    )
+    text = t.HIKKA_LOGIN_INSTRUCTIONS
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 Відкрити Hikka", url=auth_url)],
-        [InlineKeyboardButton(text="« Назад", callback_data=HikkaCB(action="status").pack())],
+        [InlineKeyboardButton(text=t.BTN_HIKKA_OPEN, url=auth_url)],
+        [InlineKeyboardButton(text=t.BTN_BACK, callback_data=HikkaCB(action="status").pack())],
     ])
 
     await c.answer()
@@ -808,19 +790,13 @@ async def cb_hikka_logout(c: CallbackQuery):
     """Видаляє Hikka токен (logout)"""
     user_id = c.from_user.id
     delete_hikka_token(user_id)
-    await c.answer("Вийшли з Hikka ✅", show_alert=True)
+    await c.answer(t.ALERT_HIKKA_LOGGED_OUT, show_alert=True)
 
     # Показуємо оновлений статус
-    text = (
-        f"<tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> <b>Hikka</b>\n\n"
-        f"Статус: ❌ не підключено\n\n"
-        f"Підключи свій акаунт Hikka, щоб при натисканні ❤️ "
-        f"аніме автоматично додавалось у список "
-        f"<b>Заплановані</b> на hikka.io."
-    )
+    text = t.HIKKA_STATUS_DISCONNECTED
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑 Увійти в Hikka", callback_data=HikkaCB(action="login").pack())],
-        [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
+        [InlineKeyboardButton(text=t.BTN_HIKKA_LOGIN, callback_data=HikkaCB(action="login").pack())],
+        [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="menu").pack())],
     ])
     await safe_edit_text(c.message, text, reply_markup=kb)
 

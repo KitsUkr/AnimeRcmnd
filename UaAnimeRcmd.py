@@ -2,6 +2,7 @@
 from collections import OrderedDict
 from urllib.parse import unquote_plus
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
+import texts as t
 import asyncio
 import json
 from handlers.user_profile import router as profile_router
@@ -48,7 +49,7 @@ HIKKA_API_TOKEN = os.getenv("HIKKA_API_TOKEN", "").strip()
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "").strip()
 
 if not BOT_TOKEN:
-    raise RuntimeError("Вкажи BOT_TOKEN у .env (BOT_TOKEN=...)")
+    raise RuntimeError(t.ERROR_NO_BOT_TOKEN)
 
 def init_db() -> None:
     """Таблиці створюються скриптом міграції migrate_sqlite_to_postgres.py,
@@ -407,7 +408,7 @@ def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[L
         items.append({
             "anime_id": anime_id,
             "seen_at": seen_at,
-            "title": title or "Без назви",
+            "title": title or t.NO_TITLE,
             "cb_id": cb_id
         })
         
@@ -517,19 +518,9 @@ def resolve_anime_id_by_cb(cb_id: str) -> Optional[str]:
 # =========================
 # Telegram UI
 # =========================
-START_TEXT = (
-    "Привіт! Я бот, який випадково рекомендує аніме для перегляду.\n\n"
-    "Опис команд:\n"
-    "• <b>🎲 Випадкове аніме</b> — Рандомно рекомендує аніме\n\n"
-    "• <b>👤 Профіль</b> — Твій профіль, де можна глянути свою статистику, та <i>Список обраних ❤️</i>\n\n"
-    "Просто натисни кнопку <b>🎲 Випадкове аніме</b>, щоб отримати рекомендацію!\n"
-)
+START_TEXT = t.START_TEXT
 
-CHANNEL_SUBSCRIBE_TEXT = (
-    "<tg-emoji emoji-id=\"5472055112702629499\">👋</tg-emoji> <b>Привіт{name_part}!</b>\n\n"
-    "Підпишись на наш канал, щоб не пропустити оновлення бота <tg-emoji emoji-id=\"5364125616801073577\">📢</tg-emoji>\n\n"
-    "<b>P.S: Підписка не є обов'язковою!</b>\n"
-)
+CHANNEL_SUBSCRIBE_TEXT = t.CHANNEL_SUBSCRIBE_TEXT
 
 
 def is_new_user(user_id: int) -> bool:
@@ -546,13 +537,13 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
         channel = CHANNEL_USERNAME.lstrip("@")
         buttons.append([
             InlineKeyboardButton(
-                text="Підписатись на канал",
+                text=t.BTN_SUBSCRIBE_CHANNEL,
                 url=f"https://t.me/{channel}",
                 icon_custom_emoji_id="5771695636411847302"
             )
         ])
     buttons.append([
-        InlineKeyboardButton(text="Продовжити", callback_data="subscribe:continue")
+        InlineKeyboardButton(text=t.BTN_CONTINUE, callback_data="subscribe:continue")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -564,10 +555,10 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
 def kb_start() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🎲 Випадкове аніме", callback_data=MenuCB(action="random").pack())],
-            [InlineKeyboardButton(text="👤 Профіль", callback_data=MenuCB(action="profile").pack()),
-             InlineKeyboardButton(text="⚙️ Налаштування", callback_data=SettingsCB(action="menu").pack())],
-            [InlineKeyboardButton(text="🔍 Фільтри пошуку", callback_data="start:filters")],
+            [InlineKeyboardButton(text=t.BTN_RANDOM_ANIME, callback_data=MenuCB(action="random").pack())],
+            [InlineKeyboardButton(text=t.BTN_PROFILE, callback_data=MenuCB(action="profile").pack()),
+             InlineKeyboardButton(text=t.BTN_SETTINGS, callback_data=SettingsCB(action="menu").pack())],
+            [InlineKeyboardButton(text=t.BTN_SEARCH_FILTERS, callback_data="start:filters")],
         ]
     )
 
@@ -575,7 +566,7 @@ def reply_kb_main() -> ReplyKeyboardMarkup:
     """Постійна клавіатура внизу чату"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🏠 Меню"), KeyboardButton(text="👤 Профіль")]
+            [KeyboardButton(text=t.BTN_HOME), KeyboardButton(text=t.BTN_PROFILE)]
         ],
         resize_keyboard=True
     )
@@ -623,11 +614,11 @@ def kb_watch_links(cb_id: str, links: List[Dict[str, str]], back_data: str | Non
             else:
                 torrents_cb = AnimeCB(action="torrents", id=cb_id).pack()
             kb.inline_keyboard.append([
-                InlineKeyboardButton(text="📥 Торренти", callback_data=torrents_cb)
+                InlineKeyboardButton(text=t.BTN_TORRENTS, callback_data=torrents_cb)
             ])
 
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data=back_data)
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data=back_data)
     ])
     return kb
 
@@ -638,7 +629,7 @@ def kb_torrent_links(cb_id: str, links: List[Dict[str, str]], back_data: str | N
     
     # Header
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="📥 Торренти", callback_data=WatchCB(action="noop").pack())
+        InlineKeyboardButton(text=t.BTN_TORRENTS, callback_data=WatchCB(action="noop").pack())
     ])
 
     # Toloka links
@@ -653,7 +644,7 @@ def kb_torrent_links(cb_id: str, links: List[Dict[str, str]], back_data: str | N
         back_data = AnimeCB(action="watch", id=cb_id).pack()
 
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data=back_data)
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data=back_data)
     ])
     return kb
 
@@ -706,20 +697,12 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
 
             # Формуємо текст результату
             if success:
-                result_text = (
-                    f"✅ <b>Успішно підключено до <tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> Hikka!</b>\n\n"
-                    f"Акаунт: <b>{result}</b>\n\n"
-                    f"Тепер при натисканні ❤️ аніме буде автоматично "
-                    f"додаватись у список <b>Заплановані</b> на Hikka."
-                )
+                result_text = t.HIKKA_LOGIN_SUCCESS.format(username=result)
             else:
-                result_text = (
-                    f"❌ <b>Не вдалося підключити Hikka</b>\n\n{result}\n\n"
-                    f"Спробуй ще раз через ⚙️ Налаштування → <tg-emoji emoji-id=\"5292247247453457908\">🔗</tg-emoji> Hikka."
-                )
+                result_text = t.HIKKA_LOGIN_FAIL.format(error=result)
 
             result_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="menu").pack())],
+                [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="menu").pack())],
             ])
 
             # Редагуємо оригінальне повідомлення-інструкцію (якщо збережено)
@@ -757,30 +740,26 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
         await message.answer(CHANNEL_SUBSCRIBE_TEXT.format(name_part=name_part), reply_markup=kb_channel_subscribe())
     else:
         # Існуючий користувач — одразу стартове меню + reply-клавіатура
-        await message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
+        await message.answer(t.KEYBOARD_ADDED, reply_markup=reply_kb_main())
         await message.answer(start_text, reply_markup=kb_start_func())
 
 @router.message(Command("feedback"))
 async def cmd_feedback(message: Message):
     channel = CHANNEL_USERNAME.lstrip("@") if CHANNEL_USERNAME else ""
-    text = (
-        "<tg-emoji emoji-id=\"5884510167986343350\">💬</tg-emoji> <b>Зворотний зв'язок</b>\n\n"
-        "Хочеш залишити відгук, пропозицію чи повідомити про баг?\n"
-        "Переходь у наш канал і пиши в коментарях 👇"
-    )
+    text = t.FEEDBACK_TEXT
     kb = None
     if channel:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", icon_custom_emoji_id="5771695636411847302", url=f"https://t.me/{channel}")]
+            [InlineKeyboardButton(text=t.BTN_GO_TO_CHANNEL, icon_custom_emoji_id="5771695636411847302", url=f"https://t.me/{channel}")]
         ])
     await message.answer(text, reply_markup=kb)
 
 # Обробники для постійних reply-кнопок
-@router.message(F.text == "🏠 Меню")
+@router.message(F.text == t.BTN_HOME)
 async def btn_start(message: Message, start_text: str, kb_start_func):
     await message.answer(start_text, reply_markup=kb_start_func())
 
-@router.message(F.text == "👤 Профіль")
+@router.message(F.text == t.BTN_PROFILE)
 async def btn_profile(message: Message):
     await send_profile(message, message.from_user.id, edit=False)
 
@@ -789,7 +768,7 @@ async def cb_subscribe_continue(callback: CallbackQuery, start_text: str, kb_sta
     """Обробник кнопки 'Продовжити' після повідомлення про підписку"""
     await callback.answer()
     # Додаємо reply-клавіатуру після натискання Продовжити
-    await callback.message.answer("⌨️ Клавіатуру додано", reply_markup=reply_kb_main())
+    await callback.message.answer(t.KEYBOARD_ADDED, reply_markup=reply_kb_main())
     await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
 @router.callback_query(MenuCB.filter(F.action == "back"))
@@ -818,7 +797,7 @@ def kb_settings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Hikka", icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
-            [InlineKeyboardButton(text="« Назад", callback_data=SettingsCB(action="back").pack())],
+            [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="back").pack())],
         ]
     )
 
@@ -827,7 +806,7 @@ def kb_settings() -> InlineKeyboardMarkup:
 async def cb_settings_menu(callback: CallbackQuery):
     """Меню Налаштувань"""
     await callback.answer()
-    text = "⚙️ <b>Налаштування</b>\n\nОберіть опцію:"
+    text = t.SETTINGS_TEXT
     await safe_edit_text(callback.message, text, reply_markup=kb_settings())
 
 
@@ -843,7 +822,7 @@ async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: Hikka
     f = get_user_filters(user_id)
 
     if not has_any_filter(f):
-        await callback.answer("Перед початком оберіть хоча б один фільтр!", show_alert=True)
+        await callback.answer(t.ALERT_NEED_FILTER, show_alert=True)
         return
     await cb_random_anime(callback, hikka_client, db_funcs)
 
@@ -924,14 +903,13 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
                 await callback.message.edit_text(msg)
         except Exception:
             try:
-                await callback.answer("Ви переглянули все аніме за цими фільтрами!", show_alert=True)
+                await callback.answer(t.ALERT_FILTERED_EXHAUSTED, show_alert=True)
             except:
                 pass
         return
 
     except AllAnimeSeenError as e:
-        msg = f"Отакої! Ви вже переглянули всі аніме з нашої бази! А це цілих <b>{e.total_count}</b> тайтлів! 🎉\n\n"
-        msg += "<i>Якщо хочете продовжувати користуватися ботом, рекомендуємо очистити історію.</i>"
+        msg = t.ALL_ANIME_SEEN.format(total_count=e.total_count)
         try:
             if callback.message.content_type == "photo":
                 await callback.message.delete()
@@ -940,7 +918,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
                 await callback.message.edit_text(msg)
         except Exception:
             try:
-                await callback.answer(f"Ви переглянули всі {e.total_count} аніме!", show_alert=True)
+                await callback.answer(t.ALERT_ALL_ANIME_SEEN.format(total_count=e.total_count), show_alert=True)
             except:
                 pass
         return
@@ -951,7 +929,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
         traceback.print_exc()
         
         try:
-            msg = "Помилка при пошуку аніме. Спробуйте пізніше 😔"
+            msg = t.ERROR_ANIME_SEARCH
             if callback.message.content_type == "photo":
                await callback.message.delete()
                await callback.message.answer(msg)
@@ -959,7 +937,7 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
                await callback.message.edit_text(msg)
         except Exception:
             try:
-                await callback.answer("Помилка при пошуку аніме", show_alert=True)
+                await callback.answer(t.ALERT_ERROR_ANIME_SEARCH, show_alert=True)
             except:
                 pass
         return
@@ -1042,13 +1020,13 @@ async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_func
     
     row = load_map(cb_id)
     if not row:
-        await callback.answer("Дані застаріли 😔", show_alert=True)
+        await callback.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
 
     anime_id, title = row
     watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     if not watch_links:
-        await callback.answer("На жаль, посилань не знайдено.", show_alert=True)
+        await callback.answer(t.ALERT_NO_LINKS, show_alert=True)
         return
 
     await callback.answer()
@@ -1063,7 +1041,7 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
     
     row = load_map(cb_id)
     if not row:
-        await callback.answer("Дані застаріли 😔", show_alert=True)
+        await callback.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
 
     anime_id, title = row
@@ -1076,7 +1054,7 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
     ]
     
     if not torrent_links:
-        await callback.answer("Торрент-посилань не знайдено.", show_alert=True)
+        await callback.answer(t.ALERT_NO_TORRENT_LINKS, show_alert=True)
         return
 
     await callback.answer()
@@ -1104,7 +1082,7 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
     anime = load_anime(cb_id)
     
     if not anime:
-        await callback.answer("Дані застаріли.", show_alert=True)
+        await callback.answer(t.ALERT_DATA_STALE_DOT, show_alert=True)
         return
 
     set_fb = db_funcs['set_feedback']
@@ -1117,14 +1095,14 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
         try:
             success, status = await hikka_auth.add_to_planned(user_id, anime.slug)
             if success:
-                hikka_msg = " + Hikka ✓"
+                hikka_msg = t.ALERT_HIKKA_SYNC_OK
             elif status == "token_expired":
-                hikka_msg = "\n⚠️ Hikka: токен прострочений, перелогіньтесь"
+                hikka_msg = t.ALERT_HIKKA_TOKEN_EXPIRED
             # Інші помилки ігноруємо (локальне збереження вже відбулось)
         except Exception as e:
             print(f"[HIKKA SYNC] Error for user {user_id}: {e}")
 
-    await callback.answer(f"Додано в обрані! ❤️{hikka_msg}")
+    await callback.answer(t.ALERT_ADDED_TO_FAVORITES.format(hikka_msg=hikka_msg))
 
 # History Handlers
 from utils.callbacks import HistoryCB
@@ -1141,8 +1119,8 @@ async def cb_history_page(c: CallbackQuery, callback_data: HistoryCB, db_funcs: 
 def kb_history_view(cb_id: str, idx: int, total: int) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton(text="🤔 Де дивитись", callback_data=HistoryCB(action="watch", cb_id=cb_id, page=idx).pack()),
-            InlineKeyboardButton(text="❤️ Додати в обране", callback_data=AnimeCB(action="like", id=cb_id).pack())
+            InlineKeyboardButton(text=t.BTN_WHERE_TO_WATCH, callback_data=HistoryCB(action="watch", cb_id=cb_id, page=idx).pack()),
+            InlineKeyboardButton(text=t.BTN_ADD_FAVORITE, callback_data=AnimeCB(action="like", id=cb_id).pack())
         ]
     ]
     
@@ -1167,7 +1145,7 @@ def kb_history_view(cb_id: str, idx: int, total: int) -> InlineKeyboardMarkup:
     rows.append(nav)
     
     # Back to profile
-    rows.append([InlineKeyboardButton(text="« Назад до профілю", callback_data=MenuCB(action="profile").pack())])
+    rows.append([InlineKeyboardButton(text=t.BTN_BACK_TO_PROFILE, callback_data=MenuCB(action="profile").pack())])
     
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1176,7 +1154,7 @@ def kb_history_pages_tiles(current_page: int, total: int, tiles_per_row: int = 5
     rows = []
     
     # Заголовок
-    rows.append([InlineKeyboardButton(text="📄 Перейти до сторінки:", callback_data="noop:header")])
+    rows.append([InlineKeyboardButton(text=t.BTN_GO_TO_PAGE, callback_data="noop:header")])
     
     # Генеруємо плитки кожні 10 сторінок: 10, 20, 30...
     tiles = []
@@ -1215,7 +1193,7 @@ def kb_history_pages_tiles(current_page: int, total: int, tiles_per_row: int = 5
     
     # Кнопка назад
     rows.append([InlineKeyboardButton(
-        text="« Назад", 
+        text=t.BTN_BACK, 
         callback_data=HistoryCB(action="page", page=current_page).pack()
     )])
     
@@ -1247,13 +1225,13 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     load_map = db_funcs['load_cb_map']
     row = load_map(cb_id)
     if not row:
-        await c.answer("Дані застаріли 😔", show_alert=True)
+        await c.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
 
     anime_id, title = row
     watch_links = await get_or_refresh_watch_links(anime_id, hikka_client)
     if not watch_links:
-        await c.answer("На жаль, посилань не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_NO_LINKS, show_alert=True)
         return
 
     await c.answer()
@@ -1273,7 +1251,7 @@ async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_fun
     load_map = db_funcs['load_cb_map']
     row = load_map(cb_id)
     if not row:
-        await c.answer("Дані застаріли 😔", show_alert=True)
+        await c.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
 
     anime_id, title = row
@@ -1286,7 +1264,7 @@ async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_fun
     ]
     
     if not torrent_links:
-        await c.answer("Торрент-посилань не знайдено.", show_alert=True)
+        await c.answer(t.ALERT_NO_TORRENT_LINKS, show_alert=True)
         return
 
     await c.answer()
@@ -1305,10 +1283,10 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
     
     if not items:
         if total == 0:
-             await c.answer("Історія порожня 👀", show_alert=True)
+             await c.answer(t.ALERT_HISTORY_EMPTY, show_alert=True)
         else:
              # Should not happen if idx is valid, but safeguard
-             await c.answer("Не вдалося завантажити запис 😢", show_alert=True)
+             await c.answer(t.ALERT_HISTORY_LOAD_ERROR, show_alert=True)
         return
 
     item = items[0]
@@ -1316,15 +1294,15 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
     
     if not cb_id:
          # Fallback if we have record but no cb_map entry (rare)
-         await c.answer("Дані про це аніме частково втрачені.", show_alert=True)
+         await c.answer(t.ALERT_DATA_PARTIALLY_LOST, show_alert=True)
          return
 
     anime = load_anime(cb_id)
     if not anime:
-        await c.answer("Дані про це аніме втрачено 😢", show_alert=True)
+        await c.answer(t.ALERT_DATA_LOST, show_alert=True)
         return
 
-    header = f"📜 <b>Історія рекомендацій</b> [{idx+1}/{total}]\n\n"
+    header = t.HISTORY_HEADER.format(current=idx+1, total=total)
     
     safe_limit = 1000 - len(header)
     
@@ -1416,42 +1394,42 @@ async def cmd_force_sync(message: Message):
     if not is_admin(message.from_user.id):
         return
 
-    await message.answer("🔄 <b>Forced Library Sync Started...</b>\n\n<i>Це може зайняти хвилину-дві. Качаю постери...</i>", parse_mode=ParseMode.HTML)
+    await message.answer(t.SYNC_STARTED, parse_mode=ParseMode.HTML)
     
     try:
         # full=True щоб точно оновити все, включаючи постери
         await hikka.sync_library(full=True)
-        await message.answer("✅ <b>Library Sync Completed!</b>\n\nТепер нові постери мають відображатись.", parse_mode=ParseMode.HTML)
+        await message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
         traceback.print_exc()
         
-        await message.answer("❌ <b>Помилка синхронізації</b>\n\nНе вдалося оновити бібліотеку. Спробуйте пізніше.", parse_mode=ParseMode.HTML)
+        await message.answer(t.SYNC_ERROR, parse_mode=ParseMode.HTML)
 
 @router.callback_query(AdminCB.filter(F.action == "force_sync"))
 async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient):
     """Примусова синхронізація бібліотеки через адмін-панель"""
     uid = c.from_user.id
     if not is_admin(uid):
-        await c.answer("Доступ заборонено", show_alert=True)
+        await c.answer(t.ALERT_ACCESS_DENIED, show_alert=True)
         return
     
-    await c.answer("Запускаю синхронізацію...")
+    await c.answer(t.ALERT_SYNC_STARTING)
     
     try:
         # Відправляємо повідомлення про початок синхронізації
-        await c.message.answer("🔄 <b>Forced Library Sync Started...</b>\n\n<i>Це може зайняти хвилину-дві. Качаю постери...</i>", parse_mode=ParseMode.HTML)
+        await c.message.answer(t.SYNC_STARTED, parse_mode=ParseMode.HTML)
         
         # full=True щоб точно оновити все, включаючи постери
         await hikka_client.sync_library(full=True)
-        await c.message.answer("✅ <b>Library Sync Completed!</b>\n\nТепер нові постери мають відображатись.", parse_mode=ParseMode.HTML)
+        await c.message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
         traceback.print_exc()
         
-        await c.message.answer("❌ <b>Помилка синхронізації</b>\n\nНе вдалося оновити бібліотеку. Спробуйте пізніше.", parse_mode=ParseMode.HTML)
+        await c.message.answer(t.SYNC_ERROR, parse_mode=ParseMode.HTML)
 
 # Запуск поллинга
 async def main() -> None:

@@ -18,6 +18,7 @@ from aiogram.types import (
 
 from database.connection import db
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION
+import texts as t
 
 router = Router()
 
@@ -92,7 +93,7 @@ def search_anime_by_title(query: str, limit: int = MAX_RESULTS) -> List[tuple]:
         anime = Anime(
             id=slug,
             slug=slug,
-            title=title or "Без назви",
+            title=title or t.NO_TITLE,
             genres=genres[:8],
             score=float(score) if score else None,
             year=int(year) if year else None,
@@ -124,17 +125,10 @@ def format_short_description(anime: Anime) -> str:
         parts.append(f"📺 {anime.episodes_total} еп.")
     
     if anime.content_type:
-        type_map = {
-            "tv": "TV",
-            "movie": "Фільм",
-            "ova": "OVA",
-            "ona": "ONA",
-            "special": "Спешл",
-            "music": "Музика",
-        }
+        type_map = t.INLINE_CONTENT_TYPES
         parts.append(type_map.get(anime.content_type, anime.content_type))
     
-    return " • ".join(parts) if parts else "Аніме"
+    return " • ".join(parts) if parts else t.INLINE_DEFAULT_DESCRIPTION
 
 
 def is_valid_url(url: Optional[str]) -> bool:
@@ -148,7 +142,7 @@ def build_watch_keyboard(anime: Anime) -> Optional[InlineKeyboardMarkup]:
     
     # Додаємо кнопки для кожного сайту перегляду (без Toloka)
     for link in anime.watch_links:
-        name = link.get("text") or link.get("name") or "Дивитись"
+        name = link.get("text") or link.get("name") or t.INLINE_WATCH_LABEL
         url = link.get("url", "")
         
         # Пропускаємо Toloka
@@ -160,7 +154,7 @@ def build_watch_keyboard(anime: Anime) -> Optional[InlineKeyboardMarkup]:
     
     # Якщо немає watch_links, додаємо посилання на Hikka
     if not buttons and anime.hikka_url:
-        buttons.append([InlineKeyboardButton(text="🔎 Сторінка на Hikka", url=anime.hikka_url)])
+        buttons.append([InlineKeyboardButton(text=t.HIKKA_PAGE_LINK, url=anime.hikka_url)])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
 
@@ -188,10 +182,10 @@ async def inline_search(query: InlineQuery):
         results.append(
             InlineQueryResultArticle(
                 id="not_found",
-                title="❌ Нічого не знайдено",
+                title=t.INLINE_NO_RESULTS_TITLE,
                 description=f"Спробуйте інший запит: \"{search_text[:30]}...\"" if len(search_text) > 30 else f"Запит: \"{search_text}\"",
                 input_message_content=InputTextMessageContent(
-                    message_text=f"🔍 Пошук \"{search_text}\" не дав результатів.",
+                    message_text=t.INLINE_NO_RESULTS_MSG.format(query=search_text),
                     parse_mode="HTML"
                 ),
             )

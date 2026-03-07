@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from utils.callbacks import MenuCB
 from utils.safe_edit import safe_edit_text
+import texts as t
 
 router = Router()
 
@@ -25,22 +26,22 @@ def kb_filters_hub(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                _btn("Жанри", "start:genres", has_genres),
-                _btn("Тип контенту", "start:content_types", has_types),
+                _btn(t.BTN_GENRES, "start:genres", has_genres),
+                _btn(t.BTN_CONTENT_TYPE, "start:content_types", has_types),
             ],
             [
-                _btn("Рік", "start:years", has_year),
-                _btn("Сезон", "start:seasons", has_seasons),
+                _btn(t.BTN_YEAR, "start:years", has_year),
+                _btn(t.BTN_SEASON, "start:seasons", has_seasons),
             ],
             [
-                _btn("Рейтинг", "start:rating", has_rating),
+                _btn(t.BTN_RATING, "start:rating", has_rating),
             ],
             [
-                InlineKeyboardButton(text="🗑️ Скинути фільтри", callback_data="filters:clear_all"),
-                InlineKeyboardButton(text="🎲 Пошук", callback_data=MenuCB(action="recommend").pack()),
+                InlineKeyboardButton(text=t.BTN_RESET_FILTERS, callback_data="filters:clear_all"),
+                InlineKeyboardButton(text=t.BTN_SEARCH, callback_data=MenuCB(action="recommend").pack()),
             ],
             [
-                InlineKeyboardButton(text="« Назад", callback_data=MenuCB(action="back").pack())
+                InlineKeyboardButton(text=t.BTN_BACK, callback_data=MenuCB(action="back").pack())
             ]
         ]
     )
@@ -52,10 +53,7 @@ async def cb_open_filters_hub(c: CallbackQuery):
     exit_genre_menu(c.from_user.id)
     
     await c.answer()
-    text = (
-        "🔍 <b>Фільтри пошуку</b>\n\n"
-        "Оберіть, за якими критеріями ви хочете налаштувати пошук аніме:"
-    )
+    text = t.FILTERS_HUB_TEXT
     
     user_id = c.from_user.id
     if c.message.photo:
@@ -98,7 +96,7 @@ async def cb_clear_all_filters(c: CallbackQuery):
     has_rating = get_rating_min(user_id) is not None
 
     if not any([has_genres, has_types, has_year, has_seasons, has_rating]):
-        await c.answer("Ця кнопка очищує ваші фільтри 🙂", show_alert=True)
+        await c.answer(t.ALERT_CLEAR_FILTERS_INFO, show_alert=True)
         return
 
     # Вихід з меню жанрів, якщо користувач там
@@ -120,10 +118,7 @@ async def cb_clear_all_filters(c: CallbackQuery):
     reset_filter_alert(user_id)
 
     # Оновити хаб фільтрів
-    text = (
-        "🔍 <b>Фільтри пошуку</b>\n\n"
-        "Оберіть, за якими критеріями ви хочете налаштувати пошук аніме:"
-    )
+    text = t.FILTERS_HUB_TEXT
 
     await safe_edit_text(c.message, text, reply_markup=kb_filters_hub(user_id))
-    await c.answer("Усі фільтри очищено! ✨", show_alert=True)
+    await c.answer(t.ALERT_ALL_FILTERS_CLEARED, show_alert=True)

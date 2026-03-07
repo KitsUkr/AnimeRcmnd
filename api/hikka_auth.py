@@ -15,6 +15,7 @@ import os
 from typing import Optional, Tuple
 from database.connection import db, transaction
 from dotenv import load_dotenv
+import texts as t
 
 load_dotenv()
 
@@ -247,7 +248,7 @@ class HikkaAuth:
         # 1. Обміняти reference на token
         token = await self.exchange_token(request_reference)
         if not token:
-            return (False, "Не вдалося обміняти код на токен. Спробуй ще раз.")
+            return (False, t.HIKKA_TOKEN_EXCHANGE_FAIL)
 
         # 2. Отримати інфо про юзера
         user_info = await self.get_user_info(token)
@@ -258,7 +259,7 @@ class HikkaAuth:
         # 3. Зберегти token
         save_hikka_token(user_id, token, username)
 
-        return (True, username or "невідомий")
+        return (True, username or t.HIKKA_UNKNOWN_USER)
 
 
 # =========================

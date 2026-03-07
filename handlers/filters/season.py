@@ -12,6 +12,7 @@ from database.connection import db, transaction
 from utils.callbacks import SeasonCB
 from utils.ui_shared import Anime, format_caption, kb_for_anime
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
+import texts as t
 from database.queries import (
     SELECT_USER_STATE_SEASONS,
     INSERT_USER_STATE_SEASONS,
@@ -90,22 +91,17 @@ def kb_season_filter(included: List[str]) -> InlineKeyboardMarkup:
                 
     # Дії
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗑️ Очистити", callback_data=SeasonCB(action="clear").pack()),
+        InlineKeyboardButton(text=t.BTN_CLEAR_FILTER, callback_data=SeasonCB(action="clear").pack()),
     ])
     
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="start:filters"),
+        InlineKeyboardButton(text=t.BTN_BACK, callback_data="start:filters"),
     ])
     
     return kb
 
 def get_season_menu_text() -> str:
-    return (
-        "🍂 <b>Фільтр по сезонам</b>\n\n"
-        "Оберіть один або декілька сезонів, які вас цікавлять.\n"
-        "Натисніть на сезон, щоб увімкнути або вимкнути його.\n\n"
-        "<i>Аніме буде знайдено, якщо воно виходило в БУДЬ-ЯКИЙ з обраних сезонів.</i>"
-    )
+    return t.SEASON_MENU_TEXT
 
 # ==================== Handlers ====================
 @router.callback_query(F.data == "start:seasons")
@@ -162,7 +158,7 @@ async def cb_season_clear(c: CallbackQuery):
     
     kb = kb_season_filter([])
     await safe_edit_reply_markup(c.message, reply_markup=kb)
-    await c.answer("Фільтр сезонів очищено! ✨", show_alert=True)
+    await c.answer(t.ALERT_SEASON_FILTER_CLEARED, show_alert=True)
 
 @router.callback_query(SeasonCB.filter(F.action == "recommend"))
 async def cb_season_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
