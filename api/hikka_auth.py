@@ -25,7 +25,6 @@ HIKKA_CLIENT_SECRET = os.getenv("HIKKA_CLIENT_SECRET", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 HIKKA_REDIRECT_PORT = int(os.getenv("HIKKA_REDIRECT_PORT", "8723"))
 
-
 # =========================
 # SQL Queries
 # =========================
@@ -58,17 +57,15 @@ _CREATE_TABLE = """
     )
 """
 
-
 # =========================
 # DB init
 # =========================
 
 def init_hikka_auth_db():
     """Створити таблицю hikka_tokens якщо не існує."""
-    conn = db()
-    conn.execute(_CREATE_TABLE)
-    conn.commit()
-
+    with transaction():
+        conn = db()
+        conn.execute(_CREATE_TABLE)
 
 # =========================
 # DB helpers
@@ -76,10 +73,9 @@ def init_hikka_auth_db():
 
 def save_hikka_token(user_id: int, token: str, username: Optional[str] = None):
     """Зберегти або оновити Hikka auth token для юзера."""
-    conn = db()
-    conn.execute(_INSERT_HIKKA_TOKEN, (user_id, token, username))
-    conn.commit()
-
+    with transaction():
+        conn = db()
+        conn.execute(_INSERT_HIKKA_TOKEN, (user_id, token, username))
 
 def get_hikka_token(user_id: int) -> Optional[Tuple[str, Optional[str]]]:
     """Отримати (token, username) для юзера, або None."""
@@ -89,18 +85,15 @@ def get_hikka_token(user_id: int) -> Optional[Tuple[str, Optional[str]]]:
         return (row[0], row[1])
     return None
 
-
 def delete_hikka_token(user_id: int):
     """Видалити Hikka token (logout)."""
-    conn = db()
-    conn.execute(_DELETE_HIKKA_TOKEN, (user_id,))
-    conn.commit()
-
+    with transaction():
+        conn = db()
+        conn.execute(_DELETE_HIKKA_TOKEN, (user_id,))
 
 def is_hikka_logged_in(user_id: int) -> bool:
     """Перевірити, чи юзер залогінений в Hikka."""
     return get_hikka_token(user_id) is not None
-
 
 # =========================
 # OAuth Flow
@@ -109,15 +102,27 @@ def is_hikka_logged_in(user_id: int) -> bool:
 class HikkaAuth:
     """Клас для OAuth-авторизації на Hikka та роботи з watch list."""
 
-    def __init__(self, base_url: str = None, client_reference: str = None, client_secret: str = None):
+    def __init__(self, base_url: str = None, client_reference: str = None, client_secret: str = None, session: aiohttp.ClientSession = None):
         self.base_url = (base_url or HIKKA_API_BASE).rstrip("/")
         self.client_reference = client_reference or HIKKA_CLIENT_REFERENCE
         self.client_secret = client_secret or HIKKA_CLIENT_SECRET
+        self._shared_session = session  # Перевикористовуємо сесію якщо передано
 
     @property
     def is_configured(self) -> bool:
         """Чи налаштовані OAuth credentials."""
         return bool(self.client_reference and self.client_secret)
+
+    def _get_session(self):
+        """Повертає shared session або створює нову (context manager)."""
+        if self._shared_session and not self._shared_session.closed:
+            # Обгортка щоб shared session не закривалась при виході з `async with`
+            import contextlib
+            @contextlib.asynccontextmanager
+            async def _noop_cm():
+                yield self._shared_session
+            return _noop_cm()
+        return aiohttp.ClientSession()
 
     def get_auth_url(self) -> str:
         """
@@ -149,7 +154,7 @@ class HikkaAuth:
             "client_secret": self.client_secret,
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             try:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
@@ -157,10 +162,12 @@ class HikkaAuth:
                         return data.get("secret")
                     else:
                         text = await resp.text()
-                        print(f"[HIKKA AUTH] Token exchange failed ({resp.status}): {text}")
+                        print(f"[HIKKA AUTH] Token exchange failed ({resp.status}): {text}")
+
                         return None
             except Exception as e:
-                print(f"[HIKKA AUTH] Token exchange error: {e}")
+                print(f"[HIKKA AUTH] Token exchange error: {e}")
+
                 return None
 
     async def get_user_info(self, token: str) -> Optional[dict]:
@@ -173,16 +180,18 @@ class HikkaAuth:
         url = f"{self.base_url}/user/me"
         headers = {"auth": token}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             try:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
                     else:
-                        print(f"[HIKKA AUTH] get_user_info failed ({resp.status})")
+                        print(f"[HIKKA AUTH] get_user_info failed ({resp.status})")
+
                         return None
             except Exception as e:
-                print(f"[HIKKA AUTH] get_user_info error: {e}")
+                print(f"[HIKKA AUTH] get_user_info error: {e}")
+
                 return None
 
     async def validate_token(self, token: str) -> bool:
@@ -214,7 +223,7 @@ class HikkaAuth:
             "score": 0,
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             try:
                 async with session.put(url, json=payload, headers=headers) as resp:
                     if resp.status == 200:
@@ -228,14 +237,17 @@ class HikkaAuth:
                         # Можливо, аніме вже в списку — це не помилка
                         if "already" in text.lower():
                             return (True, "already_exists")
-                        print(f"[HIKKA AUTH] add_to_planned 400: {text}")
+                        print(f"[HIKKA AUTH] add_to_planned 400: {text}")
+
                         return (False, "bad_request")
                     else:
                         text = await resp.text()
-                        print(f"[HIKKA AUTH] add_to_planned {resp.status}: {text}")
+                        print(f"[HIKKA AUTH] add_to_planned {resp.status}: {text}")
+
                         return (False, f"error_{resp.status}")
             except Exception as e:
-                print(f"[HIKKA AUTH] add_to_planned error: {e}")
+                print(f"[HIKKA AUTH] add_to_planned error: {e}")
+
                 return (False, "network_error")
 
     async def login_user(self, user_id: int, request_reference: str) -> Tuple[bool, str]:
@@ -260,7 +272,6 @@ class HikkaAuth:
         save_hikka_token(user_id, token, username)
 
         return (True, username or t.HIKKA_UNKNOWN_USER)
-
 
 # =========================
 # OAuth Redirect Server
@@ -291,18 +302,19 @@ def create_hikka_redirect_app() -> web.Application:
 
         # Перенаправляємо на Telegram deep link
         deep_link = f"https://t.me/{bot_username}?start=hikka_{reference}"
-        print(f"[HIKKA REDIRECT] {reference[:8]}... -> {deep_link}")
+        print(f"[HIKKA REDIRECT] {reference[:8]}... -> {deep_link}")
+
         raise web.HTTPFound(location=deep_link)
 
     app = web.Application()
     app.router.add_get("/hikka-callback", hikka_callback)
     return app
 
-
 async def run_hikka_redirect_server():
     """Запускає redirect сервер для Hikka OAuth."""
     if not BOT_USERNAME:
-        print("[HIKKA REDIRECT] BOT_USERNAME not set, redirect server disabled")
+        print("[HIKKA REDIRECT] BOT_USERNAME not set, redirect server disabled")
+
         return
     
     app = create_hikka_redirect_app()
@@ -310,7 +322,7 @@ async def run_hikka_redirect_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", HIKKA_REDIRECT_PORT)
     await site.start()
-    print(f"[HIKKA REDIRECT] Server started on port {HIKKA_REDIRECT_PORT}")
+    print(f"[HIKKA REDIRECT] Server started on port {HIKKA_REDIRECT_PORT}")
 
 # user_id -> message_id повідомлення-інструкції логіну.
 # Дозволяє редагувати оригінальне повідомлення замість надсилання нового.

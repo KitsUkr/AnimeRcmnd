@@ -1,3 +1,4 @@
+
 import json
 import uuid
 import time
@@ -49,13 +50,15 @@ def sync_genre_mapping(genres_data: list = None) -> None:
         from api.hikka_client import meta_get, META_AVAILABLE_GENRES
         cached = meta_get(META_AVAILABLE_GENRES)
         if not cached:
-            print("[GENRES] ⚠️ Дані жанрів не знайдені в bot_meta")
+            print("[GENRES] ⚠️ Дані жанрів не знайдені в bot_meta")
+
             return
         
         try:
             genres_data = json.loads(cached[0])
         except Exception as e:
-            print(f"[GENRES] ❌ Помилка парсингу жанрів з bot_meta: {e}")
+            print(f"[GENRES] ❌ Помилка парсингу жанрів з bot_meta: {e}")
+
             return
     
     save_genre_mapping(genres_data)
@@ -67,7 +70,8 @@ def get_selected_genres(user_id: int) -> List[str]:
     try:
         return json.loads(row[0])
     except Exception as e:
-        print(f"Error loading selected genres: {e}")
+        print(f"Error loading selected genres: {e}")
+
         return []
 
 def set_selected_genres(user_id: int, genres: List[str]) -> None:
@@ -94,7 +98,8 @@ def get_excluded_genres(user_id: int) -> List[str]:
     try:
         return json.loads(row[0])
     except Exception as e:
-        print(f"Error loading excluded genres: {e}")
+        print(f"Error loading excluded genres: {e}")
+
         return []
 
 def set_excluded_genres(user_id: int, genres: List[str]) -> None:
@@ -142,7 +147,8 @@ def get_genre_snapshot(user_id: int) -> List[str]:
     try:
         return json.loads(row[0])
     except Exception as e:
-        print(f"Error loading genre snapshot: {e}")
+        print(f"Error loading genre snapshot: {e}")
+
         return []
 
 def set_genre_snapshot(user_id: int, genres: List[str]) -> None:
@@ -160,7 +166,6 @@ def set_genre_snapshot(user_id: int, genres: List[str]) -> None:
             """,
             (user_id, json_str, now),
         )
-
 
 # ==================== UI ====================
 async def get_all_genres(hikka_client) -> List[str]:
@@ -191,10 +196,12 @@ async def get_all_genres(hikka_client) -> List[str]:
             
             return names
         except Exception as e:
-            print(f"[GENRES] ⚠️ Помилка парсингу з bot_meta: {e}, спробую API fallback...")
+            print(f"[GENRES] ⚠️ Помилка парсингу з bot_meta: {e}, спробую API fallback...")
+
     
     # Приоритет 2: Fallback - запрос до API (перший запуск)
-    print("[GENRES] 📡 Первичное завантаження жанрів з API...")
+    print("[GENRES] 📡 Первичное завантаження жанрів з API...")
+
     
     async with aiohttp.ClientSession() as session:
         genres_data = await hikka_client._fetch_genres_from_api(session)
@@ -216,11 +223,13 @@ async def get_all_genres(hikka_client) -> List[str]:
                 if name_ua:
                     names.append(str(name_ua).strip())
         
-        print(f"[GENRES] ✅ Завантажено {len(names)} жанрів з API")
+        print(f"[GENRES] ✅ Завантажено {len(names)} жанрів з API")
+
         return names
     
     # Приоритет 3: Помилка - повертаємо порожній список
-    print("[GENRES] ❌ Не вдалося завантажити жанри з API")
+    print("[GENRES] ❌ Не вдалося завантажити жанри з API")
+
     return []
 
 def get_slug_by_name(name: str) -> str:
@@ -264,7 +273,6 @@ def toggle_genre_slug(user_id: int, genre_slug: str) -> None:
     # Reset alert flag so user sees updated filter info
     from UaAnimeRcmd import reset_filter_alert
     reset_filter_alert(user_id)
-
 
 ITEMS_PER_PAGE = 12
 
@@ -453,7 +461,6 @@ async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client)
     
     await c.answer(t.ALERT_GENRE_FILTERS_CLEARED, show_alert=True)
 
-
 @router.callback_query(GenreCB.filter(F.action == "back"))
 async def cb_genre_back(c: CallbackQuery, start_text: str, kb_start_func):
     # Exit genre menu state
@@ -462,7 +469,6 @@ async def cb_genre_back(c: CallbackQuery, start_text: str, kb_start_func):
     
     await c.answer()
     await safe_edit_text(c.message, start_text, reply_markup=kb_start_func())
-
 
 @router.callback_query(GenreCB.filter(F.action == "recommend"))
 async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
@@ -479,7 +485,6 @@ async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
 
     from UaAnimeRcmd import cb_random_anime
     await cb_random_anime(c, hikka_client, db_funcs)
-
 
 # ==================== Text-based genre search ====================
 def find_genre_by_text(query: str) -> List[str]:
@@ -502,7 +507,6 @@ def find_genre_by_text(query: str) -> List[str]:
             contains.append(slug)
     
     return exact + starts_with + contains
-
 
 from aiogram.types import Message
 

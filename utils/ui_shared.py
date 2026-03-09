@@ -1,3 +1,4 @@
+
 import html
 import json
 import re
@@ -27,7 +28,6 @@ def escape_preserve_html(text: str) -> str:
             result.append(part)
     return "".join(result)
 
-
 def safe_loads_list(json_str: Any, context: str = "data") -> List:
     """Safely parse JSON string to list with error handling.
     
@@ -46,7 +46,8 @@ def safe_loads_list(json_str: Any, context: str = "data") -> List:
             return []
         return data
     except (json.JSONDecodeError, TypeError) as e:
-        print(f"Error loading {context}: {e}")
+        print(f"Error loading {context}: {e}")
+
         return []
 
 @dataclass
@@ -250,7 +251,6 @@ def get_filter_alert_text(
         return None
         
     return "\n\n".join(parts)
-
 
 def build_filter_exhausted_message(e) -> str:
     """

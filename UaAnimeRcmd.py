@@ -1,6 +1,5 @@
-﻿import traceback
+import traceback
 from collections import OrderedDict
-from urllib.parse import unquote_plus
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
 import texts as t
 import asyncio
@@ -20,7 +19,6 @@ from handlers.user_profile import send_profile
 from handlers.admin_panel import router as admin_router, init_admin_db, touch_user, is_admin
 
 from handlers.filters.genre import router as genre_router, get_selected_genres, get_name_by_slug, get_all_genres, get_excluded_genres, GENRE_MAP
-
 
 from handlers.filters.content import router as content_type_router, get_selected_content_types, get_excluded_content_types, CONTENT_TYPE_MAP
 from handlers.filters.year import router as year_router, get_year_from, get_year_to
@@ -62,9 +60,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS rating_min real;")
             conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS season text;")
             conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS season text;")
+            conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS watch_links_json text;")
             conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS ua_poster_url text;")
+            conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS content_type text;")
         except Exception as e:
             print(f"Помилка створення колонок: {e}")
+
 
 init_admin_db()
 init_hikka_auth_db()
@@ -89,13 +90,10 @@ class DependencyMiddleware(BaseMiddleware):
         data["db_funcs"] = self.db_funcs
         return await handler(event, data)
 
-
-
 def mark_seen(user_id: int, anime_id: str) -> None:
     with transaction():
         conn = db()
         conn.execute(INSERT_USER_SEEN, (user_id, anime_id, int(time.time())))
-
 
 def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
     with transaction():
@@ -117,16 +115,15 @@ def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
                 anime.description,
                 json.dumps(anime.watch_links or [], ensure_ascii=False),
                 anime.ua_poster_url,
+                anime.content_type,
             ),
         )
-
 
 def clear_history(user_id: int) -> None:
     with transaction():
         conn = db()
         conn.execute(DELETE_USER_SEEN_BY_USER, (user_id,))
         conn.execute(UPDATE_USER_STATE_CLEAR_PAGE, (int(time.time()), user_id))
-
 
 def is_telegram_poster_error(error: Exception) -> bool:
     """Перевіряє чи є помилка пов'язана з проблемами Telegram при відправці постера"""
@@ -144,7 +141,6 @@ def is_telegram_poster_error(error: Exception) -> bool:
     ]
     return any(err in error_msg for err in telegram_errors)
 
-
 def remove_invalid_ua_poster(slug: str) -> None:
     """Видаляє невалідний UA постер з бази даних"""
     try:
@@ -155,6 +151,8 @@ def remove_invalid_ua_poster(slug: str) -> None:
                 (slug,)
             )
         print(f"[POSTER] Видалено невалідний UA постер для {slug}")
+
+
     except Exception as e:
         print(f"[POSTER] Помилка видалення UA постера для {slug}: {e}")
 
@@ -199,16 +197,14 @@ def get_user_filters(user_id: int) -> dict:
         "rating_min": float(row[7]) if row[7] is not None else None,
     }
 
-
 def has_any_filter(f: dict) -> bool:
     """Перевіряє чи є хоча б один активний фільтр."""
     return bool(
         f["genres"] or f["excluded_genres"]
         or f["content_types"] or f["excluded_content_types"]
         or f["year_from"] or f["year_to"]
-        or f["seasons"] or f["rating_min"] is not None
+        or f["seasons"] or (f["rating_min"] is not None)
     )
-
 
 def get_excluded_ids(user_id: int) -> List[str]:
     conn = db()
@@ -217,22 +213,18 @@ def get_excluded_ids(user_id: int) -> List[str]:
     ).fetchall()
     return list({r[0] for r in seen})
 
-
 def get_last_page(user_id: int) -> Optional[int]:
     conn = db()
     row = conn.execute(SELECT_USER_STATE_LAST_PAGE, (user_id,)).fetchone()
     return int(row[0]) if row and row[0] is not None else None
-
 
 def set_last_page(user_id: int, page: int) -> None:
     with transaction():
         conn = db()
         conn.execute(INSERT_USER_STATE_LAST_PAGE, (user_id, int(page), int(time.time())))
 
-
 # Час неактивності в секундах, після якого знову показувати алерт про фільтри (15 хв)
 FILTER_ALERT_INACTIVITY_SECONDS = 15 * 60
-
 
 def get_filter_alert_shown(user_id: int) -> bool:
     conn = db()
@@ -259,7 +251,6 @@ def get_filter_alert_shown(user_id: int) -> bool:
     
     return True  # Alert was shown and user is still active
 
-
 def set_filter_alert_shown(user_id: int) -> None:
     """Mark that the filter alert has been shown and update last recommendation time"""
     now = int(time.time())
@@ -274,7 +265,6 @@ def set_filter_alert_shown(user_id: int) -> None:
             """,
             (user_id, now, now)
         )
-
 
 def update_last_recommendation_time(user_id: int) -> None:
     """Update the last recommendation timestamp to keep session active"""
@@ -291,7 +281,6 @@ def update_last_recommendation_time(user_id: int) -> None:
             (user_id, now, now)
         )
 
-
 def reset_filter_alert(user_id: int) -> None:
     """Reset the filter alert flag (e.g., when filters are changed)"""
     with transaction():
@@ -305,7 +294,6 @@ def reset_filter_alert(user_id: int) -> None:
             (int(time.time()), user_id)
         )
 
-
 def is_in_genre_menu(user_id: int) -> bool:
     """Check if user is currently in the genre selection menu"""
     conn = db()
@@ -314,7 +302,6 @@ def is_in_genre_menu(user_id: int) -> bool:
         (user_id,)
     ).fetchone()
     return bool(row[0]) if row and row[0] is not None else False
-
 
 def enter_genre_menu(user_id: int, message_id: int) -> None:
     """Mark that user entered the genre menu and store the message ID"""
@@ -330,7 +317,6 @@ def enter_genre_menu(user_id: int, message_id: int) -> None:
             (user_id, message_id, int(time.time()))
         )
 
-
 def exit_genre_menu(user_id: int) -> None:
     """Mark that user left the genre menu"""
     with transaction():
@@ -344,7 +330,6 @@ def exit_genre_menu(user_id: int) -> None:
             (int(time.time()), user_id)
         )
 
-
 def get_genre_menu_message_id(user_id: int) -> Optional[int]:
     """Get the message ID of the genre menu for this user"""
     conn = db()
@@ -354,7 +339,6 @@ def get_genre_menu_message_id(user_id: int) -> Optional[int]:
     ).fetchone()
     return int(row[0]) if row and row[0] is not None else None
 
-
 def is_genre_hint_shown(user_id: int) -> bool:
     """Check if genre menu hint was shown to this user"""
     conn = db()
@@ -363,7 +347,6 @@ def is_genre_hint_shown(user_id: int) -> bool:
         (user_id,)
     ).fetchone()
     return bool(row[0]) if row and row[0] is not None else False
-
 
 def set_genre_hint_shown(user_id: int) -> None:
     """Mark that genre menu hint was shown to this user"""
@@ -378,7 +361,6 @@ def set_genre_hint_shown(user_id: int) -> None:
             """,
             (user_id, int(time.time()))
         )
-
 
 def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[List[Dict], int]:
     offset = page * per_page
@@ -414,7 +396,6 @@ def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[L
         
     return items, total
 
-
 # ✅ зберігаємо повний снапшот Anime у cb_map
 def save_cb_map(cb_id: str, anime: "Anime") -> str:
     """Зберігає або оновлює запис в cb_map. Повертає cb_id (існуючий або новий)."""
@@ -433,11 +414,13 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
                 """
                 UPDATE cb_map SET 
                     description = %s,
+                    watch_links_json = %s,
                     created_at = %s
                 WHERE anime_id = %s
                 """,
                 (
                     anime.description,
+                    json.dumps(anime.watch_links or [], ensure_ascii=False),
                     int(time.time()),
                     anime.id,
                 ),
@@ -451,6 +434,7 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
                     cb_id,
                     anime.id,
                     anime.description,
+                    json.dumps(anime.watch_links or [], ensure_ascii=False),
                     int(time.time()),
                 ),
             )
@@ -467,19 +451,18 @@ def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
     anime_id, title = row
     return str(anime_id), str(title or anime_id)
 
-
 # ✅ повністю відновлюємо Anime за cb_id (працює після рестарту)
 def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
     conn = db()
     row = conn.execute(SELECT_CB_MAP_FULL, (cb_id,)).fetchone()
-
 
     if not row:
         return None
 
     (anime_id, title, poster_url, hikka_url,
      year, score, episodes_total, genres_json,
-     description, ua_poster_url, content_type, season) = row
+     description, ua_poster_url, content_type, season,
+     watch_links_json) = row
 
     try:
         genres = json.loads(genres_json) if genres_json else []
@@ -488,6 +471,13 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
     except Exception as e:
         print(f"Error loading genres: {e}")
         genres = []
+
+    try:
+        watch_links = json.loads(watch_links_json) if watch_links_json else []
+        if not isinstance(watch_links, list):
+            watch_links = []
+    except Exception:
+        watch_links = []
 
     return Anime(
         id=str(anime_id),
@@ -500,11 +490,10 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
         description=str(description) if description else None,
         poster_url=str(poster_url) if poster_url else None,
         hikka_url=str(hikka_url) if hikka_url else None,
-        watch_links=[],
+        watch_links=watch_links,
         ua_poster_url=str(ua_poster_url) if ua_poster_url else None,
         content_type=str(content_type) if content_type else None,
     )
-
 
 def resolve_anime_id_by_cb(cb_id: str) -> Optional[str]:
     a = anime_cache.get(cb_id)
@@ -513,8 +502,6 @@ def resolve_anime_id_by_cb(cb_id: str) -> Optional[str]:
     row = load_cb_map(cb_id)
     return row[0] if row else None  # row = (anime_id, title)
 
-
-
 # =========================
 # Telegram UI
 # =========================
@@ -522,13 +509,11 @@ START_TEXT = t.START_TEXT
 
 CHANNEL_SUBSCRIBE_TEXT = t.CHANNEL_SUBSCRIBE_TEXT
 
-
 def is_new_user(user_id: int) -> bool:
     """Перевіряє чи користувач новий (немає запису в bot_users)"""
     conn = db()
     row = conn.execute("SELECT 1 FROM bot_users WHERE user_id = %s", (user_id,)).fetchone()
     return row is None
-
 
 def kb_channel_subscribe() -> InlineKeyboardMarkup:
     """Клавіатура з кнопкою підписки на канал + Продовжити"""
@@ -546,7 +531,6 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=t.BTN_CONTINUE, callback_data="subscribe:continue")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 
 # =========================
 # Keyboards & Handlers
@@ -622,7 +606,6 @@ def kb_watch_links(cb_id: str, links: List[Dict[str, str]], back_data: str | Non
     ])
     return kb
 
-
 def kb_torrent_links(cb_id: str, links: List[Dict[str, str]], back_data: str | None = None) -> InlineKeyboardMarkup:
     """Клавіатура для торрент-посилань (Толока)"""
     kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -660,13 +643,11 @@ def _cache_anime(cb_id: str, anime: Anime) -> None:
     while len(anime_cache) > ANIME_CACHE_MAX_SIZE:
         anime_cache.popitem(last=False)
 
-
 # =========================
 # Bot
 # =========================
 router = Router()
 hikka = HikkaClient(HIKKA_API_BASE, HIKKA_API_TOKEN)
-
 
 @router.callback_query(F.data.startswith("noop"))
 async def cb_noop(c: CallbackQuery):
@@ -791,16 +772,14 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
     else:
         await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
-
 def kb_settings() -> InlineKeyboardMarkup:
     """Клавіатура меню Налаштувань"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Прив'язати акаунт Hikka", icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
+            [InlineKeyboardButton(text=t.BTN_HIKKA_LINK_ACCOUNT, icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
             [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="back").pack())],
         ]
     )
-
 
 @router.callback_query(SettingsCB.filter(F.action == "menu"))
 async def cb_settings_menu(callback: CallbackQuery):
@@ -808,7 +787,6 @@ async def cb_settings_menu(callback: CallbackQuery):
     await callback.answer()
     text = t.SETTINGS_TEXT
     await safe_edit_text(callback.message, text, reply_markup=kb_settings())
-
 
 @router.callback_query(SettingsCB.filter(F.action == "back"))
 async def cb_settings_back(callback: CallbackQuery, start_text: str, kb_start_func):
@@ -825,7 +803,6 @@ async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: Hikka
         await callback.answer(t.ALERT_NEED_FILTER, show_alert=True)
         return
     await cb_random_anime(callback, hikka_client, db_funcs)
-
 
 @router.callback_query(MenuCB.filter(F.action == "random"))
 async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
@@ -990,7 +967,6 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             return
         except Exception as e:
             print(f"Failed to send/edit photo ({final_poster_url}): {e}")
-            
             # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
             if has_ua_poster and is_telegram_poster_error(e):
                 remove_invalid_ua_poster(anime.slug)
@@ -1012,7 +988,6 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
     else:
         await safe_edit_text(callback.message, caption, reply_markup=kb)
 
-
 @router.callback_query(AnimeCB.filter(F.action == "watch"))
 async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_client: HikkaClient):
     cb_id = callback_data.id
@@ -1031,7 +1006,6 @@ async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_func
 
     await callback.answer()
     await safe_edit_reply_markup(callback.message, reply_markup=kb_watch_links(cb_id, watch_links))
-
 
 @router.callback_query(AnimeCB.filter(F.action == "torrents"))
 async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_client: HikkaClient):
@@ -1060,7 +1034,6 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
     await callback.answer()
     await safe_edit_reply_markup(callback.message, reply_markup=kb_torrent_links(cb_id, torrent_links))
 
-
 @router.callback_query(AnimeCB.filter(F.action == "back_to_list"))
 async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     cb_id = callback_data.id
@@ -1079,7 +1052,7 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
     val = 1 
     
     load_anime = db_funcs['load_anime_by_cb']
-    anime = load_anime(cb_id)
+    anime = anime_cache.get(cb_id) or load_anime(cb_id)
     
     if not anime:
         await callback.answer(t.ALERT_DATA_STALE_DOT, show_alert=True)
@@ -1101,7 +1074,6 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
             # Інші помилки ігноруємо (локальне збереження вже відбулось)
         except Exception as e:
             print(f"[HIKKA SYNC] Error for user {user_id}: {e}")
-
     await callback.answer(t.ALERT_ADDED_TO_FAVORITES.format(hikka_msg=hikka_msg))
 
 # History Handlers
@@ -1216,7 +1188,6 @@ async def cb_history_pages(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     
     await safe_edit_reply_markup(c.message, reply_markup=kb)
 
-
 @router.callback_query(HistoryCB.filter(F.action == "watch"))
 async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict, hikka_client: HikkaClient):
     cb_id = callback_data.cb_id
@@ -1240,7 +1211,6 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     back_data = HistoryCB(action="page", page=page_idx).pack()
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_watch_links(cb_id, watch_links, back_data=back_data, history_page=page_idx))
-
 
 @router.callback_query(HistoryCB.filter(F.action == "torrents"))
 async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_funcs: dict, hikka_client: HikkaClient):
@@ -1325,11 +1295,9 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
              return
         except Exception as e:
             print(f"[HISTORY] Failed to send poster ({final_poster}): {e}")
-            
             # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
             if has_ua_poster and is_telegram_poster_error(e):
                 remove_invalid_ua_poster(anime.slug)
-            
             # Fallback на Hikka постер якщо це був битий UA постер
             if has_ua_poster and anime.poster_url and anime.poster_url.strip().startswith("http"):
                 print(f"[FALLBACK] Пробую Hikka постер в історії")
@@ -1341,7 +1309,6 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
                     return
                 except Exception as e2:
                     print(f"[FALLBACK] Hikka постер теж не вдався: {e2}")
-            
     # Fallback to delete/send if type mismatch or error
     try:
         await c.message.delete()
@@ -1358,6 +1325,7 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
                 return
             except Exception as e:
                 print(f"[FALLBACK] UA постер не працює при answer_photo, пробую Hikka")
+
                 # Якщо це помилка Telegram - видаляємо UA постер з бази
                 if is_telegram_poster_error(e):
                     remove_invalid_ua_poster(anime.slug)
@@ -1404,7 +1372,6 @@ async def cmd_force_sync(message: Message):
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
         traceback.print_exc()
-        
         await message.answer(t.SYNC_ERROR, parse_mode=ParseMode.HTML)
 
 @router.callback_query(AdminCB.filter(F.action == "force_sync"))
@@ -1428,7 +1395,6 @@ async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient):
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
         traceback.print_exc()
-        
         await c.message.answer(t.SYNC_ERROR, parse_mode=ParseMode.HTML)
 
 # Запуск поллинга
@@ -1477,9 +1443,7 @@ async def main() -> None:
     dp.include_router(filters_hub_router)
     dp.include_router(inline_router)
     print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")
-
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

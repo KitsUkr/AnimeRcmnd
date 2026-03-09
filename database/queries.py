@@ -28,9 +28,10 @@ INSERT_USER_FEEDBACK = """
         title, poster_url, hikka_url,
         year, score, episodes_total,
         genres_json, description,
-        watch_links_json, ua_poster_url
+        watch_links_json, ua_poster_url,
+        content_type
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (user_id, anime_id) DO UPDATE SET
         value = EXCLUDED.value,
         ts = EXCLUDED.ts,
@@ -43,30 +44,13 @@ INSERT_USER_FEEDBACK = """
         genres_json = EXCLUDED.genres_json,
         description = EXCLUDED.description,
         watch_links_json = EXCLUDED.watch_links_json,
-        ua_poster_url = EXCLUDED.ua_poster_url
+        ua_poster_url = EXCLUDED.ua_poster_url,
+        content_type = EXCLUDED.content_type
 """
 
 SELECT_USER_FEEDBACK_LIKES = """
     SELECT COUNT(*) FROM user_feedback 
     WHERE user_id=%s AND value=1
-"""
-
-SELECT_USER_FEEDBACK_LIKES_WITH_OFFSET = """
-    SELECT anime_id, COALESCE(title, anime_id) AS title
-    FROM user_feedback
-    WHERE user_id=%s AND value=1
-    ORDER BY ts DESC
-    LIMIT 1 OFFSET %s
-"""
-
-SELECT_USER_FEEDBACK_SNAPSHOT = """
-    SELECT anime_id, title, poster_url, hikka_url,
-           year, score, episodes_total, genres_json,
-           description, watch_links_json
-    FROM user_feedback
-    WHERE user_id=%s AND value=1
-    ORDER BY ts DESC
-    LIMIT 1 OFFSET %s
 """
 
 DELETE_USER_FEEDBACK_LIKES = """
@@ -162,12 +146,13 @@ INSERT_USER_STATE_EXCLUDED_SEASONS = """
 INSERT_CB_MAP = """
     INSERT INTO cb_map(
         cb_id, anime_id,
-        description,
+        description, watch_links_json,
         created_at
     )
-    VALUES(%s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s)
     ON CONFLICT(anime_id) DO UPDATE SET
         description = EXCLUDED.description,
+        watch_links_json = EXCLUDED.watch_links_json,
         created_at = EXCLUDED.created_at
 """
 
@@ -181,7 +166,8 @@ SELECT_CB_MAP_BY_ID = """
 SELECT_CB_MAP_FULL = """
     SELECT m.anime_id, l.title, l.poster_url, l.hikka_url,
            l.year, l.score, l.episodes_total, l.genres_json,
-           m.description, l.ua_poster_url, l.content_type, l.season
+           m.description, l.ua_poster_url, l.content_type, l.season,
+           m.watch_links_json
     FROM cb_map m
     LEFT JOIN anime_library l ON m.anime_id = l.slug
     WHERE m.cb_id=%s

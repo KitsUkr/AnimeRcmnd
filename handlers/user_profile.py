@@ -1,3 +1,4 @@
+
 import html
 import time
 from aiogram import Router, F
@@ -31,30 +32,6 @@ def get_user_stats(user_id: int) -> dict:
         "likes": likes,
     }
 
-def get_liked_titles_count(user_id: int) -> int:
-    conn = db()
-    row = conn.execute(
-        "SELECT COUNT(*) FROM user_feedback WHERE user_id=%s AND value=1",
-        (user_id,),
-    ).fetchone()
-    return int(row[0] or 0)
-
-def get_liked_title_at(user_id: int, idx: int) -> tuple[str, str] | None:
-    conn = db()
-    row = conn.execute(
-        """
-        SELECT anime_id, COALESCE(title, anime_id) AS title
-        FROM user_feedback
-        WHERE user_id=%s AND value=1
-        ORDER BY ts DESC
-        LIMIT 1 OFFSET %s
-        """,
-        (user_id, int(idx)),
-    ).fetchone()
-    if not row:
-        return None
-    return str(row[0]), str(row[1])
-
 def get_liked_count(user_id: int) -> int:
     conn = db()
     row = conn.execute(
@@ -69,7 +46,8 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
         """
         SELECT anime_id, title, poster_url, hikka_url,
                year, score, episodes_total, genres_json,
-               description, watch_links_json, ua_poster_url
+               description, watch_links_json, ua_poster_url,
+               content_type
         FROM user_feedback
         WHERE user_id=%s AND value=1
         ORDER BY ts DESC
@@ -83,7 +61,8 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
 
     (anime_id, title, poster_url, hikka_url,
      year, score, episodes_total, genres_json,
-     description, watch_links_json, ua_poster_url) = row
+     description, watch_links_json, ua_poster_url,
+     content_type) = row
 
     try:
         genres = json.loads(genres_json) if genres_json else []
@@ -91,6 +70,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
             genres = []
     except Exception as e:
         print(f"Error loading genres (profile): {e}")
+
         genres = []
 
     try:
@@ -99,6 +79,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
             watch_links = []
     except Exception as e:
         print(f"Error loading watch links (profile): {e}")
+
         watch_links = []
 
     return {
@@ -113,6 +94,7 @@ def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
         "description": str(description) if description else None,
         "watch_links": watch_links,
         "ua_poster_url": str(ua_poster_url) if ua_poster_url else None,
+        "content_type": str(content_type) if content_type else None,
     }
 
 def kb_likes_photo(idx: int, total: int, has_watch: bool) -> InlineKeyboardMarkup:
@@ -150,7 +132,6 @@ def kb_likes_photo(idx: int, total: int, has_watch: bool) -> InlineKeyboardMarku
 
     return kb
 
-
 def clear_likes(user_id: int) -> int:
     with transaction():
         conn = db()
@@ -160,7 +141,6 @@ def clear_likes(user_id: int) -> int:
         )
         return cur.rowcount
 
-
 def unlike_title(user_id: int, anime_id: str) -> None:
     with transaction():
         conn = db()
@@ -168,7 +148,6 @@ def unlike_title(user_id: int, anime_id: str) -> None:
             "DELETE FROM user_feedback WHERE user_id=%s AND anime_id=%s AND value=1",
             (user_id, anime_id),
         )
-
 
 async def send_profile(target: Message, user_id: int, *, edit: bool = False):
     if target.chat.type != "private":
@@ -285,7 +264,6 @@ def render_like_card(s: dict) -> str:
     synopsis = html.escape(desc.strip().replace("\n", " "))
     return base + f"\n\n<i>📖 Синопсис:</i> {synopsis}" + link_line
 
-
 async def show_liked(target: Message, user_id: int, idx: int):
     total = get_liked_count(user_id)
     if total <= 0:
@@ -354,7 +332,6 @@ def kb_likes_watch(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup:
     kb.inline_keyboard.append([InlineKeyboardButton(text=t.BTN_BACK, callback_data=f"prof:likes_photo:{idx}")])
     return kb
 
-
 def kb_likes_torrents(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup:
     """Клавіатура для торрент-посилань (Толока) в обраних"""
     kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -407,6 +384,7 @@ async def open_likes_viewer(c: CallbackQuery, idx: int):
         hikka_url=snap.get("hikka_url"),
         watch_links=snap.get("watch_links") or [],
         ua_poster_url=snap.get("ua_poster_url"),
+        content_type=snap.get("content_type"),
     )
     caption = format_caption(a)
     final_poster = a.ua_poster_url or a.poster_url
@@ -428,39 +406,6 @@ async def open_likes_viewer(c: CallbackQuery, idx: int):
             text=caption,
             reply_markup=kb_likes_photo(idx, total),
         )
-
-async def show_liked_title(target: Message, user_id: int, idx: int) -> None:
-    total = get_liked_titles_count(user_id)
-    if total <= 0:
-        await safe_edit_text(target,
-            "❤️ <b>Обрані тайтли</b>\n\nСписок обраних пуст 💔",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="prof:back_to_profile")]]
-            ),
-        )
-        return
-
-    idx = max(0, min(idx, total - 1))
-
-    row = get_liked_title_at(user_id, idx)
-    if not row:
-        await safe_edit_text(target,
-            t.FAVORITES_LIST_LOAD_ERROR,
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text=t.BTN_BACK, callback_data="prof:back_to_profile")]]
-            ),
-        )
-        return
-
-    anime_id, title = row
-    text = (
-        f"{t.FAVORITES_TITLE}\n\n"
-        f"<b>{html.escape(title)}</b>\n"
-        f"<code>{html.escape(anime_id)}</code>"
-    )
-
-    await safe_edit_text(target, text, reply_markup=kb_likes_pager(idx, total))
-
 
 @router.callback_query(F.data.startswith("prof:unlike:"))
 async def prof_unlike(c: CallbackQuery):
@@ -525,6 +470,7 @@ async def prof_unlike(c: CallbackQuery):
         hikka_url=new_snap.get("hikka_url"),
         watch_links=new_snap.get("watch_links") or [],
         ua_poster_url=new_snap.get("ua_poster_url"),
+        content_type=new_snap.get("content_type"),
     )
     caption = format_caption(a)
     markup = kb_likes_photo(new_idx, total_after, has_watch=bool(a.watch_links))
@@ -534,7 +480,6 @@ async def prof_unlike(c: CallbackQuery):
         await safe_edit_media(c.message, InputMediaPhoto(media=final_poster, caption=caption), reply_markup=markup)
     else:
         await safe_edit_text(c.message, caption, reply_markup=markup)
-
 
 @router.callback_query(F.data.startswith("prof:likes_photo:"))
 async def prof_likes_photo_pager(c: CallbackQuery):
@@ -572,6 +517,7 @@ async def prof_likes_photo_pager(c: CallbackQuery):
         hikka_url=snap.get("hikka_url"),
         watch_links=snap.get("watch_links") or [],
         ua_poster_url=snap.get("ua_poster_url"),
+        content_type=snap.get("content_type"),
     )
     caption = format_caption(a)
     markup = kb_likes_photo(idx, total, has_watch=bool(a.watch_links))
@@ -597,7 +543,6 @@ async def prof_likes_close(c: CallbackQuery):
     m = await c.bot.send_message(chat_id, t.OPENING_PROFILE)
     await send_profile(m, c.from_user.id, edit=True)
 
-
 @router.callback_query(F.data.startswith("prof:likes_open:"))
 async def prof_likes_open(c: CallbackQuery):
     try:
@@ -605,7 +550,6 @@ async def prof_likes_open(c: CallbackQuery):
     except Exception:
         idx = 0
     await open_likes_viewer(c, idx)
-
 
 @router.callback_query(F.data.startswith("prof:likes_watch:"))
 async def prof_likes_watch(c: CallbackQuery):
@@ -632,7 +576,6 @@ async def prof_likes_watch(c: CallbackQuery):
     await safe_edit_reply_markup(c.message,
         reply_markup=kb_likes_watch(idx, snap["watch_links"])
     )
-
 
 @router.callback_query(F.data.startswith("prof:likes_torrents:"))
 async def prof_likes_torrents(c: CallbackQuery):
@@ -732,7 +675,6 @@ async def prof_clear_history(c: CallbackQuery):
 async def prof_noop(c: CallbackQuery):
     await c.answer()
 
-
 # =========================
 # Hikka OAuth handlers
 # =========================
@@ -761,7 +703,6 @@ async def cb_hikka_status(c: CallbackQuery):
     await c.answer()
     await safe_edit_text(c.message, text, reply_markup=kb)
 
-
 @router.callback_query(HikkaCB.filter(F.action == "login"))
 async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
     """Надсилає юзеру URL для авторизації на Hikka"""
@@ -783,7 +724,6 @@ async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
     # на результат авторизації (замість надсилання нового)
     from api.hikka_auth import save_hikka_login_msg
     save_hikka_login_msg(c.from_user.id, c.message.message_id)
-
 
 @router.callback_query(HikkaCB.filter(F.action == "logout"))
 async def cb_hikka_logout(c: CallbackQuery):

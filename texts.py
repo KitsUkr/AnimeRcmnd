@@ -136,6 +136,7 @@ HIKKA_STATUS_DISCONNECTED = (
 
 BTN_HIKKA_LOGOUT = "🚪 Вийти з Hikka"
 BTN_HIKKA_LOGIN = "🔑 Увійти в Hikka"
+BTN_HIKKA_LINK_ACCOUNT = "Прив'язати акаунт Hikka"
 BTN_HIKKA_OPEN = "🌐 Відкрити Hikka"
 
 HIKKA_LOGIN_INSTRUCTIONS = (
