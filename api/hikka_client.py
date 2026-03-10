@@ -184,7 +184,8 @@ def get_cached_details(slug: str) -> Optional[Tuple[Optional[str], List[Dict[str
         if not isinstance(wl, list):
             wl = []
     except Exception as e:
-        print(f"Error loading cached watch links: {e}")
+        print(f"Error loading cached watch links: {e}")
+
 
         wl = []
 
@@ -242,7 +243,8 @@ async def get_or_refresh_watch_links(slug: str, hikka_client: "HikkaClient") -> 
             
             return watch_links
     except Exception as e:
-        print(f"[WATCH_LINKS] Помилка оновлення для {slug}: {e}")
+        print(f"[WATCH_LINKS] Помилка оновлення для {slug}: {e}")
+
 
         
         # 3. Fallback: повернути старі дані з кешу навіть якщо TTL вичерпано
@@ -465,10 +467,12 @@ class HikkaClient:
                 async with session.get(d_url, headers=self.headers, timeout=20) as r:
                     if r.status == 200:
                         return await r.json()
-                    print(f"[DETAILS] {d_url} → HTTP {r.status}")
+                    print(f"[DETAILS] {d_url} → HTTP {r.status}")
+
 
             except Exception as e:
-                print(f"[DETAILS] Помилка {d_url}: {e}")
+                print(f"[DETAILS] Помилка {d_url}: {e}")
+
 
         raise RuntimeError(f"Не вдалося знайти ендпоінт для деталей аніме {slug}")
 
@@ -529,10 +533,12 @@ class HikkaClient:
                         full_url = f"https://raw.githubusercontent.com/DrBryanMan/UAPosters/main/{safe_path}"
                         self.ua_posters[slug] = full_url
 
-                print(f"[UA_POSTERS] Завантажено {len(self.ua_posters)} постерів")
+                print(f"[UA_POSTERS] Завантажено {len(self.ua_posters)} постерів")
+
 
         except Exception as e:
-            print(f"[UA_POSTERS] Помилка: {e}")
+            print(f"[UA_POSTERS] Помилка: {e}")
+
 
     async def _fetch_ua_posters_map(self, session: aiohttp.ClientSession) -> Dict[str, str]:
         """Fetches and builds a map of slug -> ua_poster_url"""
@@ -540,11 +546,13 @@ class HikkaClient:
         POSTERS_BASE_URL = "https://raw.githubusercontent.com/DrBryanMan/UAPosters/main/"
         
         try:
-            print("[LIBRARY] 🔽 Завантаження мапи українських постерів...")
+            print("[LIBRARY] 🔽 Завантаження мапи українських постерів...")
+
 
             async with session.get(POSTERS_JSON_URL) as resp:
                 if resp.status != 200:
-                    print(f"[LIBRARY] ❌ Помилка завантаження постерів: статус {resp.status}")
+                    print(f"[LIBRARY] ❌ Помилка завантаження постерів: статус {resp.status}")
+
 
                     return {}
                 data = await resp.json(content_type=None)
@@ -567,12 +575,14 @@ class HikkaClient:
                         full_url = POSTERS_BASE_URL + safe_path
                         ua_map[slug] = full_url
             
-            print(f"[LIBRARY] ✅ Завантажено {len(ua_map)} українських постерів")
+            print(f"[LIBRARY] ✅ Завантажено {len(ua_map)} українських постерів")
+
 
             return ua_map
             
         except Exception as e:
-            print(f"[LIBRARY] ⚠️ Помилка обробки мапи постерів: {e}")
+            print(f"[LIBRARY] ⚠️ Помилка обробки мапи постерів: {e}")
+
 
             return {}
 
@@ -591,7 +601,8 @@ class HikkaClient:
             async with session.get(url, headers=self.headers, timeout=20) as resp:
                 if resp.status != 200:
                     text = await resp.text()
-                    print(f"[GENRES] ❌ API помилка {resp.status}: {text[:200]}")
+                    print(f"[GENRES] ❌ API помилка {resp.status}: {text[:200]}")
+
 
                     return None
                 
@@ -602,13 +613,15 @@ class HikkaClient:
                 elif isinstance(data, list):
                     genres_list = data
                 else:
-                    print(f"[GENRES] ❌ Невідомий формат відповіді: {type(data)}")
+                    print(f"[GENRES] ❌ Невідомий формат відповіді: {type(data)}")
+
 
                     return None
                 
                 return genres_list
         except Exception as e:
-            print(f"[GENRES] ❌ Виняток: {e}")
+            print(f"[GENRES] ❌ Виняток: {e}")
+
 
             return None
 
@@ -624,7 +637,8 @@ class HikkaClient:
             if cached_lib:
                 val, updated_at = cached_lib
                 if int(time.time()) - updated_at < LIBRARY_SYNC_INTERVAL:
-                    print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {int((int(time.time()) - updated_at)/3600)} год тому)")
+                    print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {int((int(time.time()) - updated_at)/3600)} год тому)")
+
 
                     return
 
@@ -639,7 +653,8 @@ class HikkaClient:
             need_poster_sync = True
 
         poster_status = "ПОВНА (з перевіркою постерів)" if need_poster_sync else "ШВИДКА (без перевірки постерів)"
-        print(f"[LIBRARY] 🚀 Починаю синхронізацію бібліотеки ({poster_status})...")
+        print(f"[LIBRARY] 🚀 Починаю синхронізацію бібліотеки ({poster_status})...")
+
 
         start_ts = time.time()
         
@@ -648,7 +663,8 @@ class HikkaClient:
 
         async with aiohttp.ClientSession() as session:
             # === ШАГ 0: СИНХРОНИЗАЦИЯ ЖАНРОВ (ОПЦИОНАЛЬНАЯ) ===
-            print(f"[LIBRARY] 📚 ШАГ 0/4: Синхронізація жанрів...")
+            print(f"[LIBRARY] 📚 ШАГ 0/4: Синхронізація жанрів...")
+
 
             try:
                 genres_data = await self._fetch_genres_from_api(session)
@@ -660,25 +676,31 @@ class HikkaClient:
                     from handlers.filters.genre import sync_genre_mapping
                     sync_genre_mapping(genres_data)
                     
-                    print(f"[LIBRARY] ✅ Жанри синхронізовано: {len(genres_data)} записів")
+                    print(f"[LIBRARY] ✅ Жанри синхронізовано: {len(genres_data)} записів")
+
 
                 else:
-                    print(f"[LIBRARY] ⚠️ Не вдалося синхронізувати жанри, продовжую...")
+                    print(f"[LIBRARY] ⚠️ Не вдалося синхронізувати жанри, продовжую...")
+
 
             except Exception as e:
-                print(f"[LIBRARY] ⚠️ Ошибка синхронізації жанрів: {e}, продовжую...")
+                print(f"[LIBRARY] ⚠️ Ошибка синхронізації жанрів: {e}, продовжую...")
+
 
             
             # === ЕТАП 1: Завантаження всіх аніме (РОЗУМНА СИНХРОНІЗАЦІЯ) ===
-            print(f"[LIBRARY] 📥 ЕТАП 1/4: Розумна синхронізація...")
+            print(f"[LIBRARY] 📥 ЕТАП 1/4: Розумна синхронізація...")
+
 
             # 1. Отримуємо загальну кількість сторінок
             try:
                 total_pages = await self.get_total_pages(session)
-                print(f"[LIBRARY] Знайдено {total_pages} сторінок")
+                print(f"[LIBRARY] Знайдено {total_pages} сторінок")
+
 
             except Exception as e:
-                print(f"[LIBRARY] ❌ Помилка отримання кількості сторінок: {e}")
+                print(f"[LIBRARY] ❌ Помилка отримання кількості сторінок: {e}")
+
 
                 return
             conn = db()
@@ -799,33 +821,40 @@ class HikkaClient:
                     total_items += len(items)
                     
                     if page % 10 == 0:
-                        print(f"[LIBRARY] Сторінок: {page}/{total_pages} | Нових: {inserted} | Оновлено: {updated} | Пропущено: {skipped}")
+                        print(f"[LIBRARY] Сторінок: {page}/{total_pages} | Нових: {inserted} | Оновлено: {updated} | Пропущено: {skipped}")
+
 
                     
                     await asyncio.sleep(0.3)  # Швидше бо менше записів
                     
                 except Exception as e:
-                    print(f"[LIBRARY] ⚠️ Помилка на сторінці {page}: {e}")
+                    print(f"[LIBRARY] ⚠️ Помилка на сторінці {page}: {e}")
+
 
                     await asyncio.sleep(2)
             
-            print(f"[LIBRARY] ✅ ЕТАП 1 завершено: нових {inserted}, оновлено {updated}, пропущено {skipped}")
+            print(f"[LIBRARY] ✅ ЕТАП 1 завершено: нових {inserted}, оновлено {updated}, пропущено {skipped}")
+
 
             
             # === ЕТАП 1.5: Заповнення порожніх жанрів ===
-            print(f"[LIBRARY] 📚 ЕТАП 1.5/4: Заповнення порожніх жанрів...")
+            print(f"[LIBRARY] 📚 ЕТАП 1.5/4: Заповнення порожніх жанрів...")
+
 
             try:
                 genres_updated, genres_failed = await self._fill_missing_genres(session)
-                print(f"[LIBRARY] ✅ ЕТАП 1.5 завершено: оновлено жанрів для {genres_updated} аніме")
+                print(f"[LIBRARY] ✅ ЕТАП 1.5 завершено: оновлено жанрів для {genres_updated} аніме")
+
 
             except Exception as e:
-                print(f"[LIBRARY] ⚠️ Помилка заповнення жанрів: {e}, продовжую...")
+                print(f"[LIBRARY] ⚠️ Помилка заповнення жанрів: {e}, продовжую...")
+
 
             
             # === ЕТАП 2: Завантаження та валідація UA постерів (якщо потрібно) ===
             if need_poster_sync:
-                print(f"[LIBRARY] 🎨 ЕТАП 2/4: Завантаження та перевірка українських постерів...")
+                print(f"[LIBRARY] 🎨 ЕТАП 2/4: Завантаження та перевірка українських постерів...")
+
 
                 ua_posters = await self._fetch_ua_posters_map(session)
                 
@@ -841,7 +870,8 @@ class HikkaClient:
                     skipped_count = len(ua_posters) - len(posters_to_check)
                     
                     if skipped_count > 0:
-                        print(f"[LIBRARY] Пропущено {skipped_count} постерів (вже є в базі)")
+                        print(f"[LIBRARY] Пропущено {skipped_count} постерів (вже є в базі)")
+
 
                     
                     validated_count = 0
@@ -861,23 +891,28 @@ class HikkaClient:
                             validated_count += 1
                         else:
                             failed_count += 1
-                            print(f"[LIBRARY] ⚠️ Битий постер для {slug}")
+                            print(f"[LIBRARY] ⚠️ Битий постер для {slug}")
+
 
                         
                         # Progress кожні 100 постерів
                         if (validated_count + failed_count) % 100 == 0:
-                            print(f"[LIBRARY] Перевірено постерів: {validated_count + failed_count}/{len(posters_to_check)}")
+                            print(f"[LIBRARY] Перевірено постерів: {validated_count + failed_count}/{len(posters_to_check)}")
+
 
                         
                         await asyncio.sleep(0.1)  # Невелика затримка між перевірками
                     
-                    print(f"[LIBRARY] ✅ ЕТАП 2 завершено: {validated_count} валідних, {failed_count} битих, {skipped_count} пропущено")
+                    print(f"[LIBRARY] ✅ ЕТАП 2 завершено: {validated_count} валідних, {failed_count} битих, {skipped_count} пропущено")
+
 
                 else:
-                    print(f"[LIBRARY] ⚠️ Не вдалося завантажити мапу постерів")
+                    print(f"[LIBRARY] ⚠️ Не вдалося завантажити мапу постерів")
+
 
             else:
-                print(f"[LIBRARY] ⏭️ ЕТАП 2 пропущено (швидка синхронізація)")
+                print(f"[LIBRARY] ⏭️ ЕТАП 2 пропущено (швидка синхронізація)")
+
 
             
             duration = time.time() - start_ts
@@ -886,7 +921,8 @@ class HikkaClient:
             count_row = conn.execute(COUNT_LIBRARY).fetchone()
             actual_count = count_row[0] if count_row else 0
             
-            print(f"[LIBRARY] ✅ Синхронізацію завершено за {duration:.1f}с. Всього аніме в базі: {actual_count}")
+            print(f"[LIBRARY] ✅ Синхронізацію завершено за {duration:.1f}с. Всього аніме в базі: {actual_count}")
+
 
             meta_set(META_LAST_LIBRARY_SYNC, "done")
             if need_poster_sync:
@@ -896,51 +932,85 @@ class HikkaClient:
             meta_set(META_TOTAL_TRANSLATED, str(actual_count))
 
     @staticmethod
-    def _matches_filters(
-        *, g_list, sc, yr, ctype, season,
-        genre_names, excluded_names,
-        genres, excluded_genres,
-        content_types, excluded_content_types,
-        year_from, year_to, score_min, seasons,
-    ) -> bool:
-        """Перевіряє чи проходить аніме через фільтри. True = підходить."""
-        # Жанри
-        if genres or excluded_genres:
-            if genre_names:
-                if not set(genre_names).issubset(set(g_list)):
-                    return False
-            if excluded_names:
-                if not set(excluded_names).isdisjoint(set(g_list)):
-                    return False
+    def _row_to_anime(row) -> Anime:
+        """Конвертує SQL-рядок в Anime об'єкт."""
+        slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype, season = row
+        try:
+            g_list = json.loads(g_json) if g_json else []
+        except Exception:
+            g_list = []
+        return Anime(
+            id=slug, slug=slug, title=title, year=yr, score=sc,
+            genres=g_list, episodes_total=ep, poster_url=poster,
+            hikka_url=h_url, description=None, watch_links=[],
+            ua_poster_url=ua_poster, content_type=ctype, season=season,
+        )
+
+    def _build_filter_query(
+        self, *, exclude_ids=None, genre_names=None, excluded_names=None,
+        content_types=None, excluded_content_types=None,
+        year_from=None, year_to=None, score_min=None, seasons=None, limit=50,
+    ):
+        """Будує SQL-запит з фільтрами. Повертає (query, params)."""
+        conditions = ["score IS NOT NULL AND score > 0"]
+        params = []
+
+        # Виключення вже переглянутих
+        if exclude_ids:
+            placeholders = ','.join('%s' for _ in exclude_ids)
+            conditions.append(f"slug NOT IN ({placeholders})")
+            params.extend(exclude_ids)
+
+        # Жанри (включення) — PostgreSQL jsonb @> operator
+        if genre_names:
+            for name in genre_names:
+                conditions.append("genres_json::jsonb @> %s::jsonb")
+                params.append(json.dumps([name], ensure_ascii=False))
+
+        # Жанри (виключення)
+        if excluded_names:
+            for name in excluded_names:
+                conditions.append("NOT (genres_json::jsonb @> %s::jsonb)")
+                params.append(json.dumps([name], ensure_ascii=False))
 
         # Типи контенту
-        if content_types or excluded_content_types:
-            if content_types and ctype not in content_types:
-                return False
-            if excluded_content_types and ctype in excluded_content_types:
-                return False
+        if content_types:
+            placeholders = ','.join('%s' for _ in content_types)
+            conditions.append(f"content_type IN ({placeholders})")
+            params.extend(content_types)
+        if excluded_content_types:
+            placeholders = ','.join('%s' for _ in excluded_content_types)
+            conditions.append(f"content_type NOT IN ({placeholders})")
+            params.extend(excluded_content_types)
 
         # Роки
         if year_from or year_to:
-            if yr is None:
-                return False
-            if year_from and yr < year_from:
-                return False
-            if year_to and yr > year_to:
-                return False
+            conditions.append("year IS NOT NULL")
+        if year_from:
+            conditions.append("year >= %s")
+            params.append(year_from)
+        if year_to:
+            conditions.append("year <= %s")
+            params.append(year_to)
 
-        # Мінімальний рейтинг (score > 0 вже фільтрується SQL)
-        if sc is None or sc <= 0:
-            return False
-        if score_min is not None and sc < score_min:
-            return False
+        # Мінімальний рейтинг
+        if score_min is not None:
+            conditions.append("score >= %s")
+            params.append(score_min)
 
         # Сезони
         if seasons:
-            if season is None or season not in seasons:
-                return False
+            placeholders = ','.join('%s' for _ in seasons)
+            conditions.append(f"season IN ({placeholders})")
+            params.extend(seasons)
 
-        return True
+        cols = ("slug, title, genres_json, score, year, episodes_total, "
+                "poster_url, hikka_url, ua_poster_url, content_type, season")
+        where = " AND ".join(conditions)
+        query = f"SELECT {cols} FROM anime_library WHERE {where} ORDER BY RANDOM() LIMIT %s"
+        params.append(limit)
+
+        return query, params
 
     async def random_anime(
         self,
@@ -964,88 +1034,48 @@ class HikkaClient:
         count = count_row[0] if count_row else 0
         
         if count < 100:
-            print(f"[RANDOM] ⚠️ Бібліотека порожня ({count} записів), використовую HTTP-метод")
+            print(f"[RANDOM] ⚠️ Бібліотека порожня ({count} записів), використовую HTTP-метод")
 
             return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
         
         # 2. Якщо є фільтри по жанрах - перевіряємо, чи достатньо жанрів у базі
         if genres or excluded_genres:
-            # Підраховуємо, скільки аніме мають жанри
             genres_count = conn.execute(
                 "SELECT COUNT(*) FROM anime_library WHERE genres_json != '[]' AND genres_json IS NOT NULL"
             ).fetchone()[0]
             
-            if genres_count < 100:  # Мало даних для фільтрації
-                print(f"[RANDOM] 🔄 Жанрів у базі мало ({genres_count}), використовую HTTP API")
+            if genres_count < 100:
+                print(f"[RANDOM] 🔄 Жанрів у базі мало ({genres_count}), використовую HTTP API")
 
                 return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
             else:
-                print(f"[RANDOM] ⚡ Жанрів у базі достатньо ({genres_count}), пробую SQL пошук")
+                print(f"[RANDOM] ⚡ Жанрів у базі достатньо ({genres_count}), пробую SQL пошук")
 
         
-        # 3. SQL Пошук
-        print(f"[RANDOM] ⚡ Шукаю в локальній бібліотеці (Total: {count})")
-
-        
-        query = "SELECT slug, title, genres_json, score, year, episodes_total, poster_url, hikka_url, ua_poster_url, content_type, season FROM anime_library"
-        params = []
-        conditions = []
-        
-        # Фільтр: виключаємо аніме з рейтингом 0 або NULL
-        conditions.append("score IS NOT NULL AND score > 0")
-        
-        if exclude_ids:
-            placeholders = ','.join('%s' for _ in exclude_ids)
-            conditions.append(f"slug NOT IN ({placeholders})")
-            params.extend(exclude_ids)
-                
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        
-        # Отримуємо всі записи з бази
-        rows = conn.execute(query, params).fetchall()
-        
-        # ✅ Виносимо конвертацію жанрів перед циклом (performance optimization)
+        # 3. Конвертація slug → name для SQL
         excluded_names = []
         if excluded_genres:
             excluded_names = [get_name_by_slug(s) for s in excluded_genres]
-            
-        # Фільтрація Python (exclude_ids + genres + content_types)
-        candidates = []
-        ex_set = set(exclude_ids)
         
-        for r in rows:
-            slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype, season = r
-            if slug in ex_set:
-                continue
-            
-            # Парсинг жанрів для об'єкта
-            try:
-                g_list = json.loads(g_json)
-            except:
-                g_list = []
-            
-            if not self._matches_filters(
-                g_list=g_list, sc=sc, yr=yr, ctype=ctype, season=season,
-                genre_names=genre_names, excluded_names=excluded_names,
-                genres=genres, excluded_genres=excluded_genres,
-                content_types=content_types, excluded_content_types=excluded_content_types,
-                year_from=year_from, year_to=year_to, score_min=score_min, seasons=seasons,
-            ):
-                continue
+        # 4. SQL Пошук (вся фільтрація в SQL!)
+        print(f"[RANDOM] ⚡ SQL-пошук в бібліотеці (Total: {count})")
 
-            candidates.append(Anime(
-                id=slug, slug=slug, title=title,
-                year=yr, score=sc, genres=g_list,
-                episodes_total=ep, poster_url=poster,
-                hikka_url=h_url, description=None, watch_links=[],
-                ua_poster_url=ua_poster, content_type=ctype, season=season
-            ))
+        query, params = self._build_filter_query(
+            exclude_ids=exclude_ids,
+            genre_names=genre_names or [],
+            excluded_names=excluded_names,
+            content_types=content_types,
+            excluded_content_types=excluded_content_types,
+            year_from=year_from, year_to=year_to,
+            score_min=score_min, seasons=seasons, limit=50,
+        )
+        rows = conn.execute(query, params).fetchall()
+        candidates = [self._row_to_anime(r) for r in rows]
             
         if not candidates:
             # 🔄 SMART FALLBACK: Якщо точний пошук по всіх жанрах не дав результату
             if genre_names and len(genre_names) > 1:
-                print(f"[RANDOM] ⚠️ SQL не знайшов для всіх жанрів: {genre_names}. Вмикаю Smart Fallback...")
+                print(f"[RANDOM] ⚠️ SQL не знайшов для всіх жанрів: {genre_names}. Вмикаю Smart Fallback...")
 
                 
                 # Перемішуємо жанри для різноманітності
@@ -1053,57 +1083,38 @@ class HikkaClient:
                 random.shuffle(shuffled_names)
                 
                 for single_genre in shuffled_names:
-                    print(f"[RANDOM] 🔄 Пробую окремий жанр в БД: {single_genre}")
+                    print(f"[RANDOM] 🔄 Пробую окремий жанр в БД: {single_genre}")
 
                     
-                    # Пошук по одному жанру
-                    for r in rows:
-                        slug, title, g_json, sc, yr, ep, poster, h_url, ua_poster, ctype, season = r
-                        if slug in ex_set:
-                            continue
-                        
-                        try:
-                            g_list = json.loads(g_json) if g_json else []
-                        except:
-                            g_list = []
-                        
-                        # Перевіряємо чи є ХОЧА Б цей один жанр
-                        if single_genre not in g_list:
-                            continue
-                        
-                        if not self._matches_filters(
-                            g_list=g_list, sc=sc, yr=yr, ctype=ctype, season=season,
-                            genre_names=None, excluded_names=excluded_names,
-                            genres=None, excluded_genres=excluded_genres,
-                            content_types=content_types, excluded_content_types=excluded_content_types,
-                            year_from=year_from, year_to=year_to, score_min=score_min, seasons=seasons,
-                        ):
-                            continue
-                        
-                        candidates.append(Anime(
-                            id=slug, slug=slug, title=title,
-                            year=yr, score=sc, genres=g_list,
-                            episodes_total=ep, poster_url=poster,
-                            hikka_url=h_url, description=None, watch_links=[],
-                            ua_poster_url=ua_poster, content_type=ctype, season=season
-                        ))
+                    # SQL-запит по одному жанру (замість ітерації по всіх рядках)
+                    fb_query, fb_params = self._build_filter_query(
+                        exclude_ids=exclude_ids,
+                        genre_names=[single_genre],
+                        excluded_names=excluded_names,
+                        content_types=content_types,
+                        excluded_content_types=excluded_content_types,
+                        year_from=year_from, year_to=year_to,
+                        score_min=score_min, seasons=seasons, limit=50,
+                    )
+                    fb_rows = conn.execute(fb_query, fb_params).fetchall()
+                    candidates = [self._row_to_anime(r) for r in fb_rows]
                     
                     if candidates:
-                        print(f"[RANDOM] ✅ Smart Fallback знайшов {len(candidates)} аніме в жанрі '{single_genre}'")
+                        print(f"[RANDOM] ✅ Smart Fallback знайшов {len(candidates)} аніме в жанрі '{single_genre}'")
 
                         break
             
             # Якщо і Smart Fallback не допоміг - HTTP
             if not candidates:
                 if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to or seasons or score_min is not None:
-                    print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
+                    print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
 
                     return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
                 else:
                     raise AllAnimeSeenError(count)
             
         got = random.choice(candidates)
-        print(f"[RANDOM] ✅ Знайдено в SQL: {got.title}")
+        print(f"[RANDOM] ✅ Знайдено в SQL: {got.title}")
 
         
         # Відновлюємо деталі (опис, лінки) через старий механізм (кеш або запит)
@@ -1153,7 +1164,8 @@ class HikkaClient:
                 set_cached_details(got.slug, got.description, got.watch_links)
                     
             except Exception as e:
-                print(f"[ENRICH] Error loading details: {e}")
+                print(f"[ENRICH] Error loading details: {e}")
+
 
         
         # LAZY: Створюємо/оновлюємо запис в anime_library якщо потрібно
@@ -1194,7 +1206,8 @@ class HikkaClient:
                         UPDATE_LIBRARY_GENRES,
                         (genres_json, now, anime.slug)
                     )
-                    print(f"[LAZY] ✅ Оновлено жанри для {anime.slug}: {anime.genres[:3]}...")
+                    print(f"[LAZY] ✅ Оновлено жанри для {anime.slug}: {anime.genres[:3]}...")
+
 
                 else:
                     # Створюємо новий запис
@@ -1215,11 +1228,13 @@ class HikkaClient:
                             anime.season
                         )
                     )
-                    print(f"[LAZY] ✅ Створено запис в library для {anime.slug}: '{anime.title}'")
+                    print(f"[LAZY] ✅ Створено запис в library для {anime.slug}: '{anime.title}'")
+
 
                     
         except Exception as e:
-            print(f"[LAZY] ⚠️ Помилка збереження {anime.slug}: {e}")
+            print(f"[LAZY] ⚠️ Помилка збереження {anime.slug}: {e}")
+
 
     def _parse_genres_from_details(self, data: Dict[str, Any]) -> List[str]:
         """Витягнути список жанрів з відповіді API деталей"""
@@ -1264,11 +1279,13 @@ class HikkaClient:
         total = len(rows)
         
         if total == 0:
-            print(f"[GENRES] ✅ Всі аніме вже мають жанри!")
+            print(f"[GENRES] ✅ Всі аніме вже мають жанри!")
+
 
             return 0, 0
         
-        print(f"[GENRES] 📚 Знайдено {total} аніме без жанрів, починаю заповнення...")
+        print(f"[GENRES] 📚 Знайдено {total} аніме без жанрів, починаю заповнення...")
+
 
         
         updated = 0
@@ -1281,7 +1298,8 @@ class HikkaClient:
                 if not data:
                     failed += 1
                     if i % 50 == 0:
-                        print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+                        print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+
 
                     await asyncio.sleep(0.3)
                     continue
@@ -1291,7 +1309,8 @@ class HikkaClient:
                 if not genres:
                     failed += 1
                     if i % 50 == 0:
-                        print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+                        print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+
 
                     await asyncio.sleep(0.3)
                     continue
@@ -1308,7 +1327,8 @@ class HikkaClient:
                 
                 # Прогрес кожні 50 аніме
                 if i % 50 == 0:
-                    print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+                    print(f"[GENRES] Прогрес: {i}/{total} | Оновлено: {updated} | Помилок: {failed}")
+
 
                 
                 # Пауза щоб не перевантажувати API
@@ -1317,11 +1337,13 @@ class HikkaClient:
             except Exception as e:
                 failed += 1
                 if i % 50 == 0 or failed <= 5:
-                    print(f"[GENRES] ⚠️ Помилка для {slug}: {e}")
+                    print(f"[GENRES] ⚠️ Помилка для {slug}: {e}")
+
 
                 await asyncio.sleep(0.3)
         
-        print(f"[GENRES] ✅ Заповнення завершено: оновлено {updated}, помилок {failed}")
+        print(f"[GENRES] ✅ Заповнення завершено: оновлено {updated}, помилок {failed}")
+
 
         return updated, failed
 
@@ -1353,16 +1375,20 @@ class HikkaClient:
             body = self.build_body_random(media_types=content_types, seasons=seasons)
             if search_genres:
                 body["genres"] = search_genres
-                print(f"[RANDOM] 🔍 Пошук за жанрами: {', '.join(search_genres)}")
+                print(f"[RANDOM] 🔍 Пошук за жанрами: {', '.join(search_genres)}")
+
 
             if content_types:
-                print(f"[RANDOM] 🎬 Пошук за типами: {', '.join(content_types)}")
+                print(f"[RANDOM] 🎬 Пошук за типами: {', '.join(content_types)}")
+
 
             if not search_genres and not content_types:
-                print(f"[RANDOM] 🔍 Пошук без фільтрів")
+                print(f"[RANDOM] 🔍 Пошук без фільтрів")
+
 
             total_pages = await self.get_total_pages(session, body=body)
-            print(f"[RANDOM] Знайдено {total_pages} сторінок")
+            print(f"[RANDOM] Знайдено {total_pages} сторінок")
+
 
             
             if total_pages == 0:
@@ -1421,7 +1447,8 @@ class HikkaClient:
                     if candidates:
                         return random.choice(candidates), page
                 except Exception as e:
-                    print(f"[RANDOM] Помилка отримання сторінки {page}: {e}")
+                    print(f"[RANDOM] Помилка отримання сторінки {page}: {e}")
+
 
             
             return None
@@ -1435,7 +1462,8 @@ class HikkaClient:
             
             # 2. SMART FALLBACK
             elif genres and len(genres) > 1:
-                print(f"[RANDOM] ⚠️ Нічого не знайдено для {genres}. Вмикаю 'Smart Fallback'...")
+                print(f"[RANDOM] ⚠️ Нічого не знайдено для {genres}. Вмикаю 'Smart Fallback'...")
+
 
                 
                 shuffled_genres = list(genres)
@@ -1445,13 +1473,15 @@ class HikkaClient:
                 last_total_pages = None
                 
                 for g in shuffled_genres:
-                    print(f"[RANDOM] 🔄 Пробую окремий жанр: {g}")
+                    print(f"[RANDOM] 🔄 Пробую окремий жанр: {g}")
+
 
                     result = await _search_attempt(session, [g], 3)
                     
                     if result:
                         got, page = result
-                        print(f"[RANDOM] ✅ Знайдено в жанрі '{g}'!")
+                        print(f"[RANDOM] ✅ Знайдено в жанрі '{g}'!")
+
 
                         fallback_found = True
                         break
@@ -1484,7 +1514,8 @@ class HikkaClient:
                     score_min=score_min,
                 )
 
-            print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")
+            print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")
+
 
             cached = get_cached_details(got.slug)
             if cached:
@@ -1516,12 +1547,14 @@ class HikkaClient:
                         break
 
                     except Exception as e:
-                        print(f"  → Спроба {detail_attempt + 1}/3 деталей провалилась: {e}")
+                        print(f"  → Спроба {detail_attempt + 1}/3 деталей провалилась: {e}")
+
 
                         if detail_attempt < 2:
                             await asyncio.sleep(1)
 
                 if not details_success:
-                    print(f"[WARNING] Не вдалося завантажити жанри для {got.slug}")
+                    print(f"[WARNING] Не вдалося завантажити жанри для {got.slug}")
+
 
             return got, page
