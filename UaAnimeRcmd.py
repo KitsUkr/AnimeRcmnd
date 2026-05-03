@@ -532,6 +532,15 @@ def kb_channel_subscribe() -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def kb_hikka_onboarding() -> InlineKeyboardMarkup:
+    """Клавіатура онбордингу: запропонувати прив'язку Hikka або пропустити."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t.BTN_HIKKA_LINK_ACCOUNT,
+                              callback_data="onboard:hikka_login")],
+        [InlineKeyboardButton(text=t.BTN_SKIP,
+                              callback_data="onboard:to_main")],
+    ])
+
 # =========================
 # Keyboards & Handlers
 # =========================
@@ -745,12 +754,46 @@ async def btn_profile(message: Message):
     await send_profile(message, message.from_user.id, edit=False)
 
 @router.callback_query(F.data == "subscribe:continue")
-async def cb_subscribe_continue(callback: CallbackQuery, start_text: str, kb_start_func):
+async def cb_subscribe_continue(callback: CallbackQuery, start_text: str, kb_start_func, hikka_auth: HikkaAuth):
     """Обробник кнопки 'Продовжити' після повідомлення про підписку"""
     await callback.answer()
-    # Додаємо reply-клавіатуру після натискання Продовжити
+
+    if hikka_auth.is_configured:
+        # Пропонуємо прив'язати Hikka перед головним меню (без reply-клавіатури).
+        # Reply-клавіатура з'явиться лише коли юзер дійсно перейде в головне меню.
+        await safe_edit_text(callback.message, t.HIKKA_ONBOARDING_TEXT,
+                             reply_markup=kb_hikka_onboarding())
+    else:
+        # Hikka OAuth не налаштовано — одразу головне меню + reply-клавіатура
+        await callback.message.answer(t.KEYBOARD_ADDED, reply_markup=reply_kb_main())
+        await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
+
+@router.callback_query(F.data == "onboard:to_main")
+async def cb_onboard_to_main(callback: CallbackQuery, start_text: str, kb_start_func):
+    """Перехід в головне меню з онбордингу — активує reply-клавіатуру."""
+    await callback.answer()
     await callback.message.answer(t.KEYBOARD_ADDED, reply_markup=reply_kb_main())
     await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
+
+@router.callback_query(F.data == "onboard:hikka_login")
+async def cb_onboard_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
+    """Hikka login під час онбордингу — кнопка Назад веде в головне меню."""
+    if not hikka_auth.is_configured:
+        await c.answer(t.ALERT_HIKKA_NOT_CONFIGURED, show_alert=True)
+        return
+
+    auth_url = hikka_auth.get_auth_url()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t.BTN_HIKKA_OPEN, url=auth_url)],
+        [InlineKeyboardButton(text=t.BTN_BACK, callback_data="onboard:to_main")],
+    ])
+
+    await c.answer()
+    await safe_edit_text(c.message, t.HIKKA_LOGIN_INSTRUCTIONS, reply_markup=kb)
+
+    # Зберігаємо message_id, щоб після OAuth callback відредагувати це ж повідомлення
+    from api.hikka_auth import save_hikka_login_msg
+    save_hikka_login_msg(c.from_user.id, c.message.message_id)
 
 @router.callback_query(MenuCB.filter(F.action == "back"))
 async def cb_back(callback: CallbackQuery, start_text: str, kb_start_func):

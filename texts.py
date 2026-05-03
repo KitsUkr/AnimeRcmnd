@@ -148,6 +148,16 @@ HIKKA_LOGIN_INSTRUCTIONS = (
     'зі списком <b>«Запланованих»</b> на Hikka.</i>'
 )
 
+HIKKA_ONBOARDING_TEXT = (
+    '<tg-emoji emoji-id="5292247247453457908">🔗</tg-emoji> <b>Прив\'яжи акаунт Hikka</b>\n\n'
+    "Підключи свій акаунт Hikka, щоб при <b>збереженні</b> "
+    "<b>аніме</b>, воно автоматично додавалось у список "
+    "<b>«Запланованих»</b> на hikka.io.\n\n"
+    "<i>Це не обов'язково — можеш зробити це пізніше через ⚙️ Налаштування.</i>"
+)
+
+BTN_SKIP = "Пропустити"
+
 ALERT_HIKKA_NOT_CONFIGURED = "Налаштування Hikka OAuth не знайдено."
 ALERT_HIKKA_LOGGED_OUT = "Вийшли з Hikka ✅"
 
