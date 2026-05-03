@@ -216,8 +216,38 @@ SELECT_BOT_USERS_COUNT = """
 
 
 SELECT_BOT_USERS_ACTIVE = """
-    SELECT COUNT(*) FROM bot_users 
+    SELECT COUNT(*) FROM bot_users
     WHERE last_seen_at >= %s
+"""
+
+# Cursor-based ітерація юзерів для broadcast про оновлення бібліотеки
+SELECT_USERS_FOR_BROADCAST = """
+    SELECT user_id FROM bot_users
+    WHERE notify_updates = TRUE AND user_id > %s
+    ORDER BY user_id
+"""
+
+UPDATE_USER_NOTIFY_OFF = """
+    UPDATE bot_users SET notify_updates = FALSE WHERE user_id = %s
+"""
+
+# =========================
+# library_sync_batches (broadcast про оновлення бібліотеки)
+# =========================
+INSERT_SYNC_BATCH = """
+    INSERT INTO library_sync_batches(batch_id, created_at, slugs_json, items_count)
+    VALUES(%s, %s, %s, %s)
+"""
+
+SELECT_SYNC_BATCH = """
+    SELECT slugs_json, items_count, COALESCE(last_user_id, 0)
+    FROM library_sync_batches WHERE batch_id = %s
+"""
+
+UPDATE_SYNC_BATCH_CURSOR = """
+    UPDATE library_sync_batches
+    SET last_user_id = %s, notified_count = notified_count + %s
+    WHERE batch_id = %s
 """
 
 # =========================

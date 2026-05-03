@@ -5,10 +5,11 @@ import json
 import random
 import time
 import re
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote_plus, quote
 from database.connection import db, transaction
-from database.queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES
+from database.queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES, INSERT_SYNC_BATCH
 from utils.ui_shared import Anime
 from handlers.filters.genre import get_name_by_slug, get_slug_by_name
 
@@ -34,6 +35,7 @@ META_TOTAL_TRANSLATED = "total_translated_titles"
 META_LAST_LIBRARY_SYNC = "last_library_sync"
 META_LAST_POSTERS_SYNC = "last_posters_sync"
 META_AVAILABLE_GENRES = "available_genres_json"
+META_LAST_NOTIFY_BATCH_ID = "last_notify_batch_id"
 
 DETAILS_TTL_SECONDS = 12 * 24 * 3600  # 12 days
 LIBRARY_SYNC_INTERVAL = 13 * 24 * 3600 # 13 days
@@ -625,10 +627,11 @@ class HikkaClient:
 
             return None
 
-    async def sync_library(self, full: bool = False) -> None:
+    async def sync_library(self, full: bool = False) -> str | None:
         """
         Фоновий процес: скачує всі сторінки аніме і зберігає в локальну БД.
         full=True - ігнорує дати та перезаписує.
+        Повертає batch_id (12-hex) пачки нових тайтлів, або None якщо нічого не додано.
         """
         # Перевірка часу останньої синхронізації
         if not full:
@@ -640,7 +643,7 @@ class HikkaClient:
                     print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {int((int(time.time()) - updated_at)/3600)} год тому)")
 
 
-                    return
+                    return None
 
             # 2. Poster Sync Check (14 days)
             cached_posters = meta_get(META_LAST_POSTERS_SYNC)
@@ -702,12 +705,13 @@ class HikkaClient:
                 print(f"[LIBRARY] ❌ Помилка отримання кількості сторінок: {e}")
 
 
-                return
+                return None
             conn = db()
             total_items = 0
             skipped = 0
             updated = 0
             inserted = 0
+            inserted_slugs: list[str] = []
             now = int(time.time())
             
             for page in range(1, total_pages + 1):
@@ -745,6 +749,7 @@ class HikkaClient:
                                 anime.score, anime.year, anime.episodes_total,
                                 anime.poster_url, anime.hikka_url, now, None, anime.content_type, anime.season
                             ))
+                            inserted_slugs.append(anime.slug)
                         else:
                             # Порівнюємо з існуючим записом
                             db_slug, db_title, db_genres, db_score, db_year, db_episodes, db_poster, db_season = db_record
@@ -927,9 +932,27 @@ class HikkaClient:
             meta_set(META_LAST_LIBRARY_SYNC, "done")
             if need_poster_sync:
                 meta_set(META_LAST_POSTERS_SYNC, "done")
-            
+
             # Update total translated count - використовуємо реальну кількість з бази
             meta_set(META_TOTAL_TRANSLATED, str(actual_count))
+
+            # Створюємо пачку нових тайтлів для broadcast (якщо щось додано)
+            if inserted_slugs:
+                batch_id = uuid.uuid4().hex[:12]
+                with transaction():
+                    conn.execute(
+                        INSERT_SYNC_BATCH,
+                        (
+                            batch_id,
+                            int(time.time()),
+                            json.dumps(inserted_slugs, ensure_ascii=False),
+                            len(inserted_slugs),
+                        ),
+                    )
+                print(f"[LIBRARY] 📦 Пачка broadcast створена: {batch_id} ({len(inserted_slugs)} нових тайтлів)")
+                return batch_id
+
+            return None
 
     @staticmethod
     def _row_to_anime(row) -> Anime:
