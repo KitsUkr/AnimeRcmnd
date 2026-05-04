@@ -54,7 +54,7 @@ class HikkaCB(CallbackData, prefix="hikka"):
 class SettingsCB(CallbackData, prefix="settings"):
     action: str  # menu, back
 
-class NotifyCB(CallbackData, prefix="notif"):
-    action: str       # show, off, next, prev
-    batch_id: str     # uuid4().hex[:12]
+class RecentCB(CallbackData, prefix="recent"):
+    action: str       # next, prev
+    recent_id: str    # uuid4().hex[:12]
     index: int = 0

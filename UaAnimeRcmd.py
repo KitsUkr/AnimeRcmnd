@@ -26,9 +26,8 @@ from handlers.filters.season import router as season_router, get_selected_season
 from handlers.filters.rating import router as rating_router, get_rating_min
 from handlers.filters.hub import router as filters_hub_router
 from handlers.inline_handler import router as inline_router
-from handlers.notify import router as notify_router
+from handlers.recent import router as recent_router
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
-from utils.broadcast import broadcast_library_update
 from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in, run_hikka_redirect_server
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
@@ -61,6 +60,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS excluded_seasons_json text;")
             conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS rating_min real;")
             conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS season text;")
+            conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS inserted_at bigint;")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_anime_inserted_at "
+                "ON anime_library(inserted_at DESC) WHERE inserted_at IS NOT NULL;"
+            )
             conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS season text;")
             conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS watch_links_json text;")
             conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS ua_poster_url text;")
@@ -1084,13 +1088,13 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
     cb_id = callback_data.id
     user_id = callback.from_user.id
 
-    # Якщо картка була відкрита з notify-флоу — повертаємо notify-клавіатуру
-    # з пагінацією, щоб юзера не "викидало" з режиму нових тайтлів.
-    from handlers.notify import try_get_notify_kb
-    notify_kb = try_get_notify_kb(cb_id)
-    if notify_kb is not None:
+    # Якщо картка була відкрита з /new — повертаємо recent-клавіатуру
+    # з пагінацією, щоб юзера не "викидало" з пачки.
+    from handlers.recent import try_get_recent_kb
+    recent_kb = try_get_recent_kb(cb_id)
+    if recent_kb is not None:
         await callback.answer()
-        await safe_edit_reply_markup(callback.message, reply_markup=notify_kb)
+        await safe_edit_reply_markup(callback.message, reply_markup=recent_kb)
         return
 
     f = get_user_filters(user_id)
@@ -1400,21 +1404,19 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
 async def cb_watch_noop(callback: CallbackQuery):
     await callback.answer()
 
-async def refresh_library_loop(bot: Bot):
+async def refresh_library_loop():
     # Delay first run to let bot start
     await asyncio.sleep(10)
     while True:
         try:
-            batch_id = await hikka.sync_library()
-            if batch_id:
-                await broadcast_library_update(bot, batch_id)
+            await hikka.sync_library()
         except Exception as e:
             print(f"[LIBRARY] Sync loop error: {e}")
         # Run every 24 hours
         await asyncio.sleep(24 * 3600)
 
 @router.message(Command("force_sync"))
-async def cmd_force_sync(message: Message, bot: Bot):
+async def cmd_force_sync(message: Message):
     if not is_admin(message.from_user.id):
         return
 
@@ -1422,10 +1424,8 @@ async def cmd_force_sync(message: Message, bot: Bot):
 
     try:
         # full=True щоб точно оновити все, включаючи постери
-        batch_id = await hikka.sync_library(full=True)
+        await hikka.sync_library(full=True)
         await message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
-        if batch_id:
-            await broadcast_library_update(bot, batch_id)
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
@@ -1433,7 +1433,7 @@ async def cmd_force_sync(message: Message, bot: Bot):
         await message.answer(t.SYNC_ERROR, parse_mode=ParseMode.HTML)
 
 @router.callback_query(AdminCB.filter(F.action == "force_sync"))
-async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient, bot: Bot):
+async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient):
     """Примусова синхронізація бібліотеки через адмін-панель"""
     uid = c.from_user.id
     if not is_admin(uid):
@@ -1447,10 +1447,8 @@ async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient, bot: 
         await c.message.answer(t.SYNC_STARTED, parse_mode=ParseMode.HTML)
 
         # full=True щоб точно оновити все, включаючи постери
-        batch_id = await hikka_client.sync_library(full=True)
+        await hikka_client.sync_library(full=True)
         await c.message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
-        if batch_id:
-            await broadcast_library_update(bot, batch_id)
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
@@ -1466,7 +1464,7 @@ async def main() -> None:
     )
 
     # Start background tasks
-    _ = asyncio.create_task(refresh_library_loop(bot))
+    _ = asyncio.create_task(refresh_library_loop())
     _ = asyncio.create_task(run_hikka_redirect_server())
 
     dp = Dispatcher()
@@ -1495,6 +1493,7 @@ async def main() -> None:
     dp.include_router(router)
     dp.include_router(profile_router)
     dp.include_router(admin_router)
+    dp.include_router(recent_router)
     dp.include_router(genre_router)
     dp.include_router(content_type_router)
     dp.include_router(year_router)
@@ -1502,7 +1501,6 @@ async def main() -> None:
     dp.include_router(rating_router)
     dp.include_router(filters_hub_router)
     dp.include_router(inline_router)
-    dp.include_router(notify_router)
     print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")
     await dp.start_polling(bot)
 

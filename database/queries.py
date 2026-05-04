@@ -220,53 +220,24 @@ SELECT_BOT_USERS_ACTIVE = """
     WHERE last_seen_at >= %s
 """
 
-# Cursor-based ітерація юзерів для broadcast про оновлення бібліотеки
-SELECT_USERS_FOR_BROADCAST = """
-    SELECT user_id FROM bot_users
-    WHERE notify_updates = TRUE AND user_id > %s
-    ORDER BY user_id
-"""
-
-UPDATE_USER_NOTIFY_OFF = """
-    UPDATE bot_users SET notify_updates = FALSE WHERE user_id = %s
-"""
-
-# =========================
-# library_sync_batches (broadcast про оновлення бібліотеки)
-# =========================
-INSERT_SYNC_BATCH = """
-    INSERT INTO library_sync_batches(batch_id, created_at, slugs_json, items_count)
-    VALUES(%s, %s, %s, %s)
-"""
-
-SELECT_SYNC_BATCH = """
-    SELECT slugs_json, items_count, COALESCE(last_user_id, 0)
-    FROM library_sync_batches WHERE batch_id = %s
-"""
-
-UPDATE_SYNC_BATCH_CURSOR = """
-    UPDATE library_sync_batches
-    SET last_user_id = %s, notified_count = notified_count + %s
-    WHERE batch_id = %s
-"""
-
 # =========================
 # anime_library (Global Index)
 # =========================
 INSERT_LIBRARY_ITEM = """
     INSERT INTO anime_library(
-        slug, title, genres_json, score, year, 
-        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season
+        slug, title, genres_json, score, year,
+        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season,
+        inserted_at
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(slug) DO UPDATE SET
         title=EXCLUDED.title,
-        genres_json=CASE 
-            WHEN anime_library.genres_json IS NOT NULL 
-                 AND anime_library.genres_json != '[]' 
-                 AND anime_library.genres_json != '' 
-            THEN anime_library.genres_json 
-            ELSE EXCLUDED.genres_json 
+        genres_json=CASE
+            WHEN anime_library.genres_json IS NOT NULL
+                 AND anime_library.genres_json != '[]'
+                 AND anime_library.genres_json != ''
+            THEN anime_library.genres_json
+            ELSE EXCLUDED.genres_json
         END,
         score=EXCLUDED.score,
         year=EXCLUDED.year,
@@ -281,18 +252,19 @@ INSERT_LIBRARY_ITEM = """
 
 INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE = """
     INSERT INTO anime_library(
-        slug, title, genres_json, score, year, 
-        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season
+        slug, title, genres_json, score, year,
+        episodes_total, poster_url, hikka_url, updated_at, ua_poster_url, content_type, season,
+        inserted_at
     )
-    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(slug) DO UPDATE SET
         title=EXCLUDED.title,
-        genres_json=CASE 
-            WHEN anime_library.genres_json IS NOT NULL 
-                 AND anime_library.genres_json != '[]' 
-                 AND anime_library.genres_json != '' 
-            THEN anime_library.genres_json 
-            ELSE EXCLUDED.genres_json 
+        genres_json=CASE
+            WHEN anime_library.genres_json IS NOT NULL
+                 AND anime_library.genres_json != '[]'
+                 AND anime_library.genres_json != ''
+            THEN anime_library.genres_json
+            ELSE EXCLUDED.genres_json
         END,
         score=EXCLUDED.score,
         year=EXCLUDED.year,
@@ -303,6 +275,13 @@ INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE = """
         ua_poster_url=COALESCE(anime_library.ua_poster_url, EXCLUDED.ua_poster_url),
         content_type=EXCLUDED.content_type,
         season=EXCLUDED.season
+"""
+
+SELECT_RECENT_ANIME_SLUGS = """
+    SELECT slug FROM anime_library
+    WHERE inserted_at IS NOT NULL
+      AND inserted_at >= %s
+    ORDER BY inserted_at DESC
 """
 
 COUNT_LIBRARY = """

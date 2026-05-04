@@ -52,12 +52,6 @@ def init_admin_db() -> None:
             ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS ad_source TEXT
             """
         )
-        # Колонка для opt-out з broadcast про оновлення бібліотеки
-        conn.execute(
-            """
-            ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS notify_updates BOOLEAN NOT NULL DEFAULT TRUE
-            """
-        )
         # Таблиця рекламних кампаній
         conn.execute(
             """
@@ -67,27 +61,6 @@ def init_admin_db() -> None:
                 created_at INTEGER NOT NULL
             )
             """
-        )
-        # Таблиця пачок нових тайтлів для broadcast про оновлення бібліотеки
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS library_sync_batches (
-                batch_id TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL,
-                slugs_json TEXT NOT NULL,
-                items_count INTEGER NOT NULL,
-                notified_count INTEGER NOT NULL DEFAULT 0,
-                last_user_id BIGINT
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sync_batches_created ON library_sync_batches(created_at DESC)"
-        )
-        # TTL: видаляємо пачки старші 60 днів
-        conn.execute(
-            "DELETE FROM library_sync_batches WHERE created_at < %s",
-            (int(time.time()) - 60 * 86400,),
         )
 
 def touch_user(user_id: int, username: str | None = None, first_name: str | None = None, ad_source: str | None = None) -> None:
