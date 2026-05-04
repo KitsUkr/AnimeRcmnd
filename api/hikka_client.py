@@ -665,9 +665,7 @@ class HikkaClient:
 
         async with aiohttp.ClientSession() as session:
             # === ШАГ 0: СИНХРОНИЗАЦИЯ ЖАНРОВ (ОПЦИОНАЛЬНАЯ) ===
-            print(f"[LIBRARY] 📚 ШАГ 0/4: Синхронізація жанрів...")
-
-
+            print(f"[LIBRARY] 📚 ШАГ 0/5: Синхронізація жанрів...")
             try:
                 genres_data = await self._fetch_genres_from_api(session)
                 if genres_data:
@@ -688,10 +686,8 @@ class HikkaClient:
             except Exception as e:
                 print(f"[LIBRARY] ⚠️ Ошибка синхронізації жанрів: {e}, продовжую...")
 
-
-            
             # === ЕТАП 1: Завантаження всіх аніме (РОЗУМНА СИНХРОНІЗАЦІЯ) ===
-            print(f"[LIBRARY] 📥 ЕТАП 1/4: Розумна синхронізація...")
+            print(f"[LIBRARY] 📥 ЕТАП 1/5: Розумна синхронізація...")
 
 
             # 1. Отримуємо загальну кількість сторінок
@@ -843,7 +839,7 @@ class HikkaClient:
 
             
             # === ЕТАП 1.5: Заповнення порожніх жанрів ===
-            print(f"[LIBRARY] 📚 ЕТАП 1.5/4: Заповнення порожніх жанрів...")
+            print(f"[LIBRARY] 📚 ЕТАП 1.5/5: Заповнення порожніх жанрів...")
 
 
             try:
@@ -855,10 +851,19 @@ class HikkaClient:
                 print(f"[LIBRARY] ⚠️ Помилка заповнення жанрів: {e}, продовжую...")
 
 
-            
+            # === ЕТАП 1.7: Передзавантаження деталей (опис, watch_links) ===
+            print(f"[LIBRARY] 📖 ЕТАП 1.7/5: Передзавантаження деталей у кеш...")
+            try:
+                details_ok, details_failed = await self._fill_missing_details(session)
+                tail = f", помилок: {details_failed}" if details_failed else ""
+                print(f"[LIBRARY] ✅ ЕТАП 1.7 завершено: завантажено деталі для {details_ok} аніме{tail}")
+            except Exception as e:
+                print(f"[LIBRARY] ⚠️ Помилка передзавантаження деталей: {e}, продовжую...")
+
+
             # === ЕТАП 2: Завантаження та валідація UA постерів (якщо потрібно) ===
             if need_poster_sync:
-                print(f"[LIBRARY] 🎨 ЕТАП 2/4: Завантаження та перевірка українських постерів...")
+                print(f"[LIBRARY] 🎨 ЕТАП 2/5: Завантаження та перевірка українських постерів...")
 
 
                 ua_posters = await self._fetch_ua_posters_map(session)
@@ -1357,6 +1362,66 @@ class HikkaClient:
 
 
         return updated, failed
+
+    async def _fill_missing_details(
+        self,
+        session: aiohttp.ClientSession,
+        limit: Optional[int] = None,
+    ) -> Tuple[int, int]:
+        conn = db()
+        query = """
+            SELECT l.slug
+            FROM anime_library l
+            LEFT JOIN anime_details_cache c ON l.slug = c.slug
+            WHERE c.slug IS NULL
+            ORDER BY l.slug
+        """
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        rows = conn.execute(query).fetchall()
+        missing = [row[0] for row in rows]
+
+        if not missing:
+            print("[DETAILS] Усі тайтли вже мають кешовані деталі")
+            return (0, 0)
+
+        total = len(missing)
+        print(f"[DETAILS] Знайдено {total} тайтлів без деталей у кеші")
+
+        success = 0
+        failed = 0
+
+        for i, slug in enumerate(missing, 1):
+            try:
+                data = await self.fetch_anime_details(session, slug)
+
+                desc_raw = data.get("synopsis_ua") or data.get("description_ua")
+                description = clean_synopsis(str(desc_raw)) if desc_raw else None
+
+                watch_links: List[Dict[str, str]] = []
+                external = data.get("external") or []
+                if isinstance(external, list):
+                    for ext in external:
+                        if isinstance(ext, dict) and ext.get("type") == "watch" and ext.get("url"):
+                            watch_links.append({
+                                "text": str(ext.get("text") or ext.get("url") or "Дивитись"),
+                                "url": str(ext["url"]),
+                            })
+
+                set_cached_details(slug, description, watch_links)
+                success += 1
+
+            except Exception as e:
+                failed += 1
+                print(f"[DETAILS] ⚠️ Помилка для {slug}: {e}")
+
+            if i % 50 == 0:
+                print(f"[DETAILS] Прогрес: {i}/{total} | Успіх: {success} | Помилок: {failed}")
+
+            await asyncio.sleep(0.5)
+
+        print(f"[DETAILS] ✅ Заповнення завершено: успіх {success}, помилок {failed}")
+        return (success, failed)
 
     async def _random_anime_http(
         self,
