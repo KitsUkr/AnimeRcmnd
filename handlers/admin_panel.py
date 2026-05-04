@@ -52,6 +52,12 @@ def init_admin_db() -> None:
             ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS ad_source TEXT
             """
         )
+        # Прапорець підписки на сповіщення про оновлення бібліотеки
+        conn.execute(
+            """
+            ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN DEFAULT TRUE
+            """
+        )
         # Таблиця рекламних кампаній
         conn.execute(
             """

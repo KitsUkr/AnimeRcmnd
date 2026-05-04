@@ -115,36 +115,58 @@ def _fetch_recent_slugs() -> list[str]:
     return [row[0] for row in rows]
 
 
-@router.message(Command("new"))
-async def cmd_new(message: Message, db_funcs: dict, hikka_client: HikkaClient):
+async def open_recent(
+    target: Message | CallbackQuery,
+    db_funcs: dict,
+    hikka_client: HikkaClient,
+) -> None:
+    """Показує першу картку нових аніме з нав-кнопками.
+    Спільна реалізація для команди /new і для callback'у з broadcast-сповіщення.
+    """
+    is_callback = isinstance(target, CallbackQuery)
+
     slugs = _fetch_recent_slugs()
     if not slugs:
-        await message.answer(t.RECENT_EMPTY)
+        if is_callback:
+            await target.answer(t.RECENT_EMPTY, show_alert=True)
+        else:
+            await target.answer(t.RECENT_EMPTY)
         return
 
     recent_id = uuid.uuid4().hex[:12]
     _set_recent_slugs(recent_id, slugs)
 
     index = 0
-    slug = slugs[index]
-    prepared = await prepare_anime_card(slug, db_funcs, hikka_client)
+    prepared = await prepare_anime_card(slugs[index], db_funcs, hikka_client)
     if prepared is None:
         # Слаг є у списку але запис зник — рідкісний race; беремо наступний.
         for i in range(1, len(slugs)):
             prepared = await prepare_anime_card(slugs[i], db_funcs, hikka_client)
             if prepared is not None:
                 index = i
-                slug = slugs[i]
                 break
         if prepared is None:
-            await message.answer(t.RECENT_EMPTY)
+            if is_callback:
+                await target.answer(t.RECENT_EMPTY, show_alert=True)
+            else:
+                await target.answer(t.RECENT_EMPTY)
             return
 
+    slug = slugs[index]
     anime, cb_id, caption = prepared
     kb = _kb_with_nav(cb_id, recent_id, index, len(slugs))
     _set_recent_ctx(cb_id, recent_id, index, len(slugs))
 
-    await send_card_to_message(message, anime, slug, caption, kb)
+    if is_callback:
+        await target.answer()
+        await send_card_via_callback(target, anime, slug, caption, kb)
+    else:
+        await send_card_to_message(target, anime, slug, caption, kb)
+
+
+@router.message(Command("new"))
+async def cmd_new(message: Message, db_funcs: dict, hikka_client: HikkaClient):
+    await open_recent(message, db_funcs, hikka_client)
 
 
 @router.callback_query(RecentCB.filter(F.action.in_({"next", "prev"})))

@@ -626,11 +626,13 @@ class HikkaClient:
 
             return None
 
-    async def sync_library(self, full: bool = False) -> None:
+    async def sync_library(self, full: bool = False) -> List[str]:
         """
         Фоновий процес: скачує всі сторінки аніме і зберігає в локальну БД.
         full=True - ігнорує дати та перезаписує.
         Нові тайтли позначаються через колонку `inserted_at` і доступні через /new.
+        Повертає список slug'ів нових тайтлів, доданих за цю синхронізацію
+        (порожній список якщо нічого не додано або синк пропущено за TTL).
         """
         # Перевірка часу останньої синхронізації
         if not full:
@@ -642,7 +644,7 @@ class HikkaClient:
                     print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {int((int(time.time()) - updated_at)/3600)} год тому)")
 
 
-                    return None
+                    return []
 
             # 2. Poster Sync Check (14 days)
             cached_posters = meta_get(META_LAST_POSTERS_SYNC)
@@ -700,7 +702,7 @@ class HikkaClient:
                 print(f"[LIBRARY] ❌ Помилка отримання кількості сторінок: {e}")
 
 
-                return None
+                return []
             conn = db()
             total_items = 0
             skipped = 0
@@ -944,7 +946,7 @@ class HikkaClient:
             if inserted_slugs:
                 print(f"[LIBRARY] 🌱 Додано {len(inserted_slugs)} нових тайтлів (доступні через /new)")
 
-            return None
+            return inserted_slugs
 
     @staticmethod
     def _row_to_anime(row) -> Anime:

@@ -27,11 +27,16 @@ from handlers.filters.rating import router as rating_router, get_rating_min
 from handlers.filters.hub import router as filters_hub_router
 from handlers.inline_handler import router as inline_router
 from handlers.recent import router as recent_router
+from handlers.library_broadcast import (
+    router as notif_router,
+    broadcast_library_update,
+    get_notifications_enabled,
+)
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
 from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in, run_hikka_redirect_server
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
-from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB, SettingsCB
+from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB, SettingsCB, NotifCB
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -821,10 +826,16 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
     else:
         await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
-def kb_settings() -> InlineKeyboardMarkup:
+def kb_settings(user_id: int) -> InlineKeyboardMarkup:
     """Клавіатура меню Налаштувань"""
+    notif_on = get_notifications_enabled(user_id)
+    notif_text = t.BTN_SETTINGS_NOTIF_ON if notif_on else t.BTN_SETTINGS_NOTIF_OFF
+    # Якщо увімкнено — клік веде на діалог підтвердження вимкнення (count=0 = з Settings).
+    # Якщо вимкнено — клік одразу вмикає назад.
+    notif_action = "disable_ask" if notif_on else "enable"
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=notif_text, callback_data=NotifCB(action=notif_action, count=0).pack())],
             [InlineKeyboardButton(text=t.BTN_HIKKA_LINK_ACCOUNT, icon_custom_emoji_id="5292247247453457908", callback_data=HikkaCB(action="status").pack())],
             [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="back").pack())],
         ]
@@ -835,7 +846,7 @@ async def cb_settings_menu(callback: CallbackQuery):
     """Меню Налаштувань"""
     await callback.answer()
     text = t.SETTINGS_TEXT
-    await safe_edit_text(callback.message, text, reply_markup=kb_settings())
+    await safe_edit_text(callback.message, text, reply_markup=kb_settings(callback.from_user.id))
 
 @router.callback_query(SettingsCB.filter(F.action == "back"))
 async def cb_settings_back(callback: CallbackQuery, start_text: str, kb_start_func):
@@ -1404,12 +1415,14 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
 async def cb_watch_noop(callback: CallbackQuery):
     await callback.answer()
 
-async def refresh_library_loop():
+async def refresh_library_loop(bot: Bot):
     # Delay first run to let bot start
     await asyncio.sleep(10)
     while True:
         try:
-            await hikka.sync_library()
+            new_slugs = await hikka.sync_library()
+            if new_slugs:
+                await broadcast_library_update(bot, len(new_slugs))
         except Exception as e:
             print(f"[LIBRARY] Sync loop error: {e}")
         # Run every 24 hours
@@ -1424,8 +1437,10 @@ async def cmd_force_sync(message: Message):
 
     try:
         # full=True щоб точно оновити все, включаючи постери
-        await hikka.sync_library(full=True)
+        new_slugs = await hikka.sync_library(full=True)
         await message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
+        if new_slugs:
+            await broadcast_library_update(message.bot, len(new_slugs))
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
@@ -1447,8 +1462,10 @@ async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient):
         await c.message.answer(t.SYNC_STARTED, parse_mode=ParseMode.HTML)
 
         # full=True щоб точно оновити все, включаючи постери
-        await hikka_client.sync_library(full=True)
+        new_slugs = await hikka_client.sync_library(full=True)
         await c.message.answer(t.SYNC_COMPLETED, parse_mode=ParseMode.HTML)
+        if new_slugs:
+            await broadcast_library_update(c.bot, len(new_slugs))
     except Exception as e:
         # Log technical details for debugging
         print(f"[ERROR] Force sync failed: {e}")
@@ -1464,7 +1481,7 @@ async def main() -> None:
     )
 
     # Start background tasks
-    _ = asyncio.create_task(refresh_library_loop())
+    _ = asyncio.create_task(refresh_library_loop(bot))
     _ = asyncio.create_task(run_hikka_redirect_server())
 
     dp = Dispatcher()
@@ -1501,6 +1518,7 @@ async def main() -> None:
     dp.include_router(rating_router)
     dp.include_router(filters_hub_router)
     dp.include_router(inline_router)
+    dp.include_router(notif_router)
     print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")
     await dp.start_polling(bot)
 

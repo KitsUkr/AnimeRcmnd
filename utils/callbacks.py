@@ -58,3 +58,7 @@ class RecentCB(CallbackData, prefix="recent"):
     action: str       # next, prev
     recent_id: str    # uuid4().hex[:12]
     index: int = 0
+
+class NotifCB(CallbackData, prefix="notif"):
+    action: str  # open, disable_ask, disable_yes, disable_no, enable
+    count: int = 0  # >0 → потік з broadcast (для відновлення тексту); 0 → потік з Налаштувань
