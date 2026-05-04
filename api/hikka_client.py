@@ -641,9 +641,12 @@ class HikkaClient:
             if cached_lib:
                 val, updated_at = cached_lib
                 if int(time.time()) - updated_at < LIBRARY_SYNC_INTERVAL:
-                    print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {int((int(time.time()) - updated_at)/3600)} год тому)")
-
-
+                    diff = int(time.time()) - updated_at
+                    if diff >= 86400:
+                        ago_str = f"{diff // 86400} днів"
+                    else:
+                        ago_str = f"{diff // 3600} год"
+                    print(f"[LIBRARY] ⏳ Синхронізація бібліотеки не потрібна (оновлено {ago_str} тому)")
                     return []
 
             # 2. Poster Sync Check (14 days)
@@ -853,14 +856,17 @@ class HikkaClient:
                 print(f"[LIBRARY] ⚠️ Помилка заповнення жанрів: {e}, продовжую...")
 
 
-            # === ЕТАП 1.7: Передзавантаження деталей (опис, watch_links) ===
-            print(f"[LIBRARY] 📖 ЕТАП 1.7/5: Передзавантаження деталей у кеш...")
+            # === ЕТАП 1.7: Синхронізація деталей (опис, watch_links) ===
+            print(f"[LIBRARY] 📖 ЕТАП 1.7/5: Синхронізація деталей у кеш...")
             try:
-                details_ok, details_failed = await self._fill_missing_details(session)
+                details_changed, details_unchanged, details_failed = await self._fill_missing_details(session)
                 tail = f", помилок: {details_failed}" if details_failed else ""
-                print(f"[LIBRARY] ✅ ЕТАП 1.7 завершено: завантажено деталі для {details_ok} аніме{tail}")
+                print(
+                    f"[LIBRARY] ✅ ЕТАП 1.7 завершено: змінено/створено {details_changed}, "
+                    f"без змін {details_unchanged}{tail}"
+                )
             except Exception as e:
-                print(f"[LIBRARY] ⚠️ Помилка передзавантаження деталей: {e}, продовжую...")
+                print(f"[LIBRARY] ⚠️ Помилка синхронізації деталей: {e}, продовжую...")
 
 
             # === ЕТАП 2: Завантаження та валідація UA постерів (якщо потрібно) ===
@@ -1369,31 +1375,32 @@ class HikkaClient:
         self,
         session: aiohttp.ClientSession,
         limit: Optional[int] = None,
-    ) -> Tuple[int, int]:
-        conn = db()
-        query = """
-            SELECT l.slug
-            FROM anime_library l
-            LEFT JOIN anime_details_cache c ON l.slug = c.slug
-            WHERE c.slug IS NULL
-            ORDER BY l.slug
+    ) -> Tuple[int, int, int]:
         """
+        Синхронізує anime_details_cache з API для всіх slug'ів у anime_library:
+        - Створює запис якщо його немає в кеші.
+        - Оновлює запис якщо опис або watch_links з API відрізняються від кешованих.
+        Повертає (changed, unchanged, failed).
+        """
+        conn = db()
+        query = "SELECT slug FROM anime_library ORDER BY slug"
         if limit is not None:
             query += f" LIMIT {int(limit)}"
         rows = conn.execute(query).fetchall()
-        missing = [row[0] for row in rows]
+        slugs = [row[0] for row in rows]
 
-        if not missing:
-            print("[DETAILS] Усі тайтли вже мають кешовані деталі")
-            return (0, 0)
+        if not slugs:
+            print("[DETAILS] anime_library порожня — нічого синхронізувати")
+            return (0, 0, 0)
 
-        total = len(missing)
-        print(f"[DETAILS] Знайдено {total} тайтлів без деталей у кеші")
+        total = len(slugs)
+        print(f"[DETAILS] Перевіряю {total} тайтлів на відмінності з API...")
 
-        success = 0
+        changed = 0
+        unchanged = 0
         failed = 0
 
-        for i, slug in enumerate(missing, 1):
+        for i, slug in enumerate(slugs, 1):
             try:
                 data = await self.fetch_anime_details(session, slug)
 
@@ -1410,20 +1417,41 @@ class HikkaClient:
                                 "url": str(ext["url"]),
                             })
 
-                set_cached_details(slug, description, watch_links)
-                success += 1
+                # Порівнюємо з поточним кешем (без TTL фільтру)
+                cached_row = conn.execute(
+                    "SELECT description, watch_links_json FROM anime_details_cache WHERE slug=%s",
+                    (slug,),
+                ).fetchone()
+
+                if cached_row is not None:
+                    cached_desc, cached_wl_json = cached_row
+                    try:
+                        cached_wl = json.loads(cached_wl_json) if cached_wl_json else []
+                        if not isinstance(cached_wl, list):
+                            cached_wl = []
+                    except Exception:
+                        cached_wl = []
+
+                    if cached_desc == description and cached_wl == watch_links:
+                        unchanged += 1
+                    else:
+                        set_cached_details(slug, description, watch_links)
+                        changed += 1
+                else:
+                    set_cached_details(slug, description, watch_links)
+                    changed += 1
 
             except Exception as e:
                 failed += 1
                 print(f"[DETAILS] ⚠️ Помилка для {slug}: {e}")
 
             if i % 50 == 0:
-                print(f"[DETAILS] Прогрес: {i}/{total} | Успіх: {success} | Помилок: {failed}")
+                print(f"[DETAILS] Прогрес: {i}/{total} | Змінено: {changed} | Без змін: {unchanged} | Помилок: {failed}")
 
             await asyncio.sleep(0.5)
 
-        print(f"[DETAILS] ✅ Заповнення завершено: успіх {success}, помилок {failed}")
-        return (success, failed)
+        print(f"[DETAILS] ✅ Завершено: змінено {changed}, без змін {unchanged}, помилок {failed}")
+        return (changed, unchanged, failed)
 
     async def _random_anime_http(
         self,

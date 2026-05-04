@@ -22,7 +22,7 @@ from aiogram.types import (
 import texts as t
 from api.hikka_client import HikkaClient
 from database.connection import db, transaction
-from utils.callbacks import NotifCB
+from utils.callbacks import MenuCB, NotifCB
 from utils.safe_edit import safe_edit_text
 
 router = Router()
@@ -167,11 +167,13 @@ async def cb_notif_disable_ask(callback: CallbackQuery, callback_data: NotifCB):
 
 @router.callback_query(NotifCB.filter(F.action == "disable_yes"))
 async def cb_notif_disable_yes(callback: CallbackQuery, callback_data: NotifCB):
-    """Підтвердження вимкнення — записуємо в БД і показуємо фінальний стан."""
     set_notifications_enabled(callback.from_user.id, False)
     await callback.answer()
     if callback.message:
-        await safe_edit_text(callback.message, t.NOTIF_DISABLED_DONE)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t.BTN_BACK, callback_data=MenuCB(action="back").pack())],
+        ])
+        await safe_edit_text(callback.message, t.NOTIF_DISABLED_DONE, reply_markup=kb)
 
 
 @router.callback_query(NotifCB.filter(F.action == "disable_no"))
