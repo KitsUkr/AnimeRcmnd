@@ -770,8 +770,8 @@ class HikkaClient:
                                 new_genres = api_genres
                                 needs_update = True
                             
-                            # Оновлюємо score якщо в базі немає
-                            if db_score is None and anime.score is not None:
+                            # Оновлюємо score якщо API повернув інше значення
+                            if anime.score is not None and anime.score != db_score:
                                 new_score = anime.score
                                 needs_update = True
                             
