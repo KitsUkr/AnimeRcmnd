@@ -1,5 +1,7 @@
 services:
   uaanisubbot:
+    build:
+         context: .
     container_name: uaanisubbot
     restart: unless-stopped
     image: uaanisubbot:latest
