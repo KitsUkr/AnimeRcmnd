@@ -38,12 +38,18 @@ def init_admin_db() -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS bot_users (
-                user_id INTEGER PRIMARY KEY,
+                user_id BIGINT PRIMARY KEY,
                 first_seen_at INTEGER NOT NULL,
                 last_seen_at INTEGER NOT NULL,
                 username TEXT,
                 first_name TEXT
             )
+            """
+        )
+        # Telegram ID можуть перевищувати діапазон INTEGER
+        conn.execute(
+            """
+            ALTER TABLE bot_users ALTER COLUMN user_id TYPE BIGINT
             """
         )
         # Додаємо колонку ad_source якщо її ще немає
