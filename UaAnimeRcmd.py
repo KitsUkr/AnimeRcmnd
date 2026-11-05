@@ -33,7 +33,7 @@ from handlers.library_broadcast import (
     get_notifications_enabled,
 )
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
-from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in, run_hikka_redirect_server
+from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
 from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB, SettingsCB, NotifCB
@@ -684,9 +684,17 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
     args = message.text.split(maxsplit=1)
     payload = args[1] if len(args) > 1 else ""
     
-    # --- Hikka OAuth deep link: /start hikka_{reference} ---
+    # Hikka OAuth: прямий /start {reference} та старий /start hikka_{reference}
+    request_reference = None
     if payload.startswith("hikka_"):
-        request_reference = payload[6:]  # "hikka_abc123" -> "abc123"
+        request_reference = payload[6:]
+    else:
+        try:
+            request_reference = str(uuid.UUID(payload))
+        except ValueError:
+            pass
+
+    if request_reference is not None:
         if request_reference and hikka_auth.is_configured:
             # Видаляємо deep link повідомлення щоб не засмічувати чат
             try:
@@ -1482,7 +1490,6 @@ async def main() -> None:
 
     # Start background tasks
     _ = asyncio.create_task(refresh_library_loop(bot))
-    _ = asyncio.create_task(run_hikka_redirect_server())
 
     dp = Dispatcher()
 

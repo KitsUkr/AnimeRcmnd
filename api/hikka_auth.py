@@ -10,7 +10,6 @@ Flow:
 """
 
 import aiohttp
-from aiohttp import web
 import os
 from typing import Optional, Tuple
 from database.connection import db, transaction
@@ -22,8 +21,6 @@ load_dotenv()
 HIKKA_API_BASE = os.getenv("HIKKA_API_BASE", "https://api.hikka.io").strip().rstrip("/")
 HIKKA_CLIENT_REFERENCE = os.getenv("HIKKA_CLIENT_REFERENCE", "").strip()
 HIKKA_CLIENT_SECRET = os.getenv("HIKKA_CLIENT_SECRET", "").strip()
-BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
-HIKKA_REDIRECT_PORT = int(os.getenv("HIKKA_REDIRECT_PORT", "8723"))
 
 # =========================
 # SQL Queries
@@ -272,57 +269,6 @@ class HikkaAuth:
         save_hikka_token(user_id, token, username)
 
         return (True, username or t.HIKKA_UNKNOWN_USER)
-
-# =========================
-# OAuth Redirect Server
-# =========================
-
-def create_hikka_redirect_app() -> web.Application:
-    """
-    Створює aiohttp web-додаток для OAuth redirect.
-    
-    Hikka після авторизації перенаправляє юзера на:
-        {endpoint}?reference={request_reference}
-    
-    Цей сервер приймає цей запит і перенаправляє юзера
-    на Telegram deep link:
-        https://t.me/{BOT_USERNAME}?start=hikka_{reference}
-    
-    Що запускає /start handler в боті для обміну reference на token.
-    """
-
-    async def hikka_callback(request: web.Request) -> web.Response:
-        reference = request.query.get("reference", "")
-        if not reference:
-            return web.Response(text="Missing reference parameter", status=400)
-        
-        bot_username = BOT_USERNAME
-        if not bot_username:
-            return web.Response(text="Bot username not configured", status=500)
-
-        # Перенаправляємо на Telegram deep link
-        deep_link = f"https://t.me/{bot_username}?start=hikka_{reference}"
-        print(f"[HIKKA REDIRECT] {reference[:8]}... -> {deep_link}")
-
-        raise web.HTTPFound(location=deep_link)
-
-    app = web.Application()
-    app.router.add_get("/hikka-callback", hikka_callback)
-    return app
-
-async def run_hikka_redirect_server():
-    """Запускає redirect сервер для Hikka OAuth."""
-    if not BOT_USERNAME:
-        print("[HIKKA REDIRECT] BOT_USERNAME not set, redirect server disabled")
-
-        return
-    
-    app = create_hikka_redirect_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", HIKKA_REDIRECT_PORT)
-    await site.start()
-    print(f"[HIKKA REDIRECT] Server started on port {HIKKA_REDIRECT_PORT}")
 
 # user_id -> message_id повідомлення-інструкції логіну.
 # Дозволяє редагувати оригінальне повідомлення замість надсилання нового.
