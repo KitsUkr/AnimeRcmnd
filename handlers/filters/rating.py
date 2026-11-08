@@ -20,10 +20,10 @@ RATING_OPTIONS = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
 
 
 # ==================== БД ====================
-def get_rating_min(user_id: int) -> Optional[float]:
+async def get_rating_min(user_id: int) -> Optional[float]:
     """Отримати мінімальний рейтинг для фільтра"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT rating_min FROM user_state WHERE user_id = %s", (user_id,)
     ).fetchone()
     if not row or row[0] is None:
@@ -34,12 +34,12 @@ def get_rating_min(user_id: int) -> Optional[float]:
         return None
 
 
-def set_rating_min(user_id: int, rating: Optional[float]) -> None:
+async def set_rating_min(user_id: int, rating: Optional[float]) -> None:
     """Встановити мінімальний рейтинг для фільтра"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, rating_min, updated_at)
             VALUES (%s, %s, %s)
@@ -50,15 +50,15 @@ def set_rating_min(user_id: int, rating: Optional[float]) -> None:
             (user_id, rating, now),
         )
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 
-def clear_rating_filter(user_id: int) -> None:
+async def clear_rating_filter(user_id: int) -> None:
     """Очистити фільтр рейтингу"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             UPDATE user_state 
             SET rating_min = NULL, updated_at = %s
@@ -67,7 +67,7 @@ def clear_rating_filter(user_id: int) -> None:
             (now, user_id),
         )
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 
 # ==================== UI ====================
@@ -119,7 +119,7 @@ async def cb_open_rating_filter(c: CallbackQuery):
 
     await c.answer()
 
-    rating_min = get_rating_min(user_id)
+    rating_min = await get_rating_min(user_id)
     text = get_rating_menu_text(rating_min)
     kb = kb_rating_filter(rating_min)
 
@@ -136,13 +136,13 @@ async def cb_set_rating(c: CallbackQuery, callback_data: RatingCB):
     user_id = c.from_user.id
     rating = callback_data.rating
 
-    current = get_rating_min(user_id)
+    current = await get_rating_min(user_id)
     # Toggle: якщо повторно натиснули на вже вибраний рейтинг - скидаємо
     if current is not None and abs(current - rating) < 0.01:
-        set_rating_min(user_id, None)
+        await set_rating_min(user_id, None)
         rating_min = None
     else:
-        set_rating_min(user_id, rating)
+        await set_rating_min(user_id, rating)
         rating_min = rating
 
     text = get_rating_menu_text(rating_min)
@@ -157,7 +157,7 @@ async def cb_rating_clear(c: CallbackQuery):
     """Очистити фільтр рейтингу"""
     user_id = c.from_user.id
 
-    clear_rating_filter(user_id)
+    await clear_rating_filter(user_id)
 
     text = get_rating_menu_text(None)
     kb = kb_rating_filter(None)

@@ -27,10 +27,10 @@ YEARS_PER_PAGE = 15
 
 
 # ==================== БД ====================
-def get_year_from(user_id: int) -> Optional[int]:
+async def get_year_from(user_id: int) -> Optional[int]:
     """Отримати рік 'від' для фільтра"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT year_from FROM user_state WHERE user_id = %s", (user_id,)
     ).fetchone()
     if not row or row[0] is None:
@@ -38,12 +38,12 @@ def get_year_from(user_id: int) -> Optional[int]:
     return int(row[0])
 
 
-def set_year_from(user_id: int, year: Optional[int]) -> None:
+async def set_year_from(user_id: int, year: Optional[int]) -> None:
     """Встановити рік 'від' для фільтра"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, year_from, updated_at)
             VALUES (%s, %s, %s)
@@ -55,13 +55,13 @@ def set_year_from(user_id: int, year: Optional[int]) -> None:
         )
     # Reset alert flag
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 
-def get_year_to(user_id: int) -> Optional[int]:
+async def get_year_to(user_id: int) -> Optional[int]:
     """Отримати рік 'до' для фільтра"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT year_to FROM user_state WHERE user_id = %s", (user_id,)
     ).fetchone()
     if not row or row[0] is None:
@@ -69,12 +69,12 @@ def get_year_to(user_id: int) -> Optional[int]:
     return int(row[0])
 
 
-def set_year_to(user_id: int, year: Optional[int]) -> None:
+async def set_year_to(user_id: int, year: Optional[int]) -> None:
     """Встановити рік 'до' для фільтра"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, year_to, updated_at)
             VALUES (%s, %s, %s)
@@ -86,15 +86,15 @@ def set_year_to(user_id: int, year: Optional[int]) -> None:
         )
     # Reset alert flag
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 
-def clear_year_filter(user_id: int) -> None:
+async def clear_year_filter(user_id: int) -> None:
     """Очистити фільтр років"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             UPDATE user_state 
             SET year_from = NULL, year_to = NULL, updated_at = %s
@@ -104,7 +104,7 @@ def clear_year_filter(user_id: int) -> None:
         )
     # Reset alert flag
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 
 # ==================== UI ====================
@@ -215,8 +215,8 @@ async def cb_open_year_filter(c: CallbackQuery):
     
     await c.answer()
     
-    year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
+    year_from = await get_year_from(user_id)
+    year_to = await get_year_to(user_id)
     
     text = get_year_menu_text(year_from, year_to)
     kb = kb_year_filter(year_from, year_to, mode="from", page=0)
@@ -235,8 +235,8 @@ async def cb_switch_year_mode(c: CallbackQuery, callback_data: YearCB):
     mode = callback_data.mode
     page = callback_data.page
     
-    year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
+    year_from = await get_year_from(user_id)
+    year_to = await get_year_to(user_id)
     
     text = get_year_menu_text(year_from, year_to)
     kb = kb_year_filter(year_from, year_to, mode=mode, page=page)
@@ -252,8 +252,8 @@ async def cb_year_page(c: CallbackQuery, callback_data: YearCB):
     mode = callback_data.mode
     page = callback_data.page
     
-    year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
+    year_from = await get_year_from(user_id)
+    year_to = await get_year_to(user_id)
     
     kb = kb_year_filter(year_from, year_to, mode=mode, page=page)
     
@@ -269,20 +269,20 @@ async def cb_set_year_from(c: CallbackQuery, callback_data: YearCB):
     page = callback_data.page
     
     # Отримуємо поточні значення
-    current_year_from = get_year_from(user_id)
-    year_to = get_year_to(user_id)
+    current_year_from = await get_year_from(user_id)
+    year_to = await get_year_to(user_id)
     
     # Toggle: якщо повторно натиснули на вже вибраний рік - скидаємо
     if current_year_from == year:
-        set_year_from(user_id, None)
+        await set_year_from(user_id, None)
         year_from = None
     else:
         # Якщо year_from > year_to, автоматично коригуємо
         if year_to and year > year_to:
-            set_year_to(user_id, year)
+            await set_year_to(user_id, year)
             year_to = year
-        
-        set_year_from(user_id, year)
+
+        await set_year_from(user_id, year)
         year_from = year
     
     text = get_year_menu_text(year_from, year_to)
@@ -300,20 +300,19 @@ async def cb_set_year_to(c: CallbackQuery, callback_data: YearCB):
     page = callback_data.page
     
     # Отримуємо поточні значення
-    year_from = get_year_from(user_id)
-    current_year_to = get_year_to(user_id)
+    year_from = await get_year_from(user_id)
+    current_year_to = await get_year_to(user_id)
     
     # Toggle: якщо повторно натиснули на вже вибраний рік - скидаємо
     if current_year_to == year:
-        set_year_to(user_id, None)
+        await set_year_to(user_id, None)
         year_to = None
     else:
-        # Якщо year_to < year_from, автоматично коригуємо
         if year_from and year < year_from:
-            set_year_from(user_id, year)
+            await set_year_from(user_id, year)
             year_from = year
-        
-        set_year_to(user_id, year)
+
+        await set_year_to(user_id, year)
         year_to = year
     
     text = get_year_menu_text(year_from, year_to)
@@ -328,7 +327,7 @@ async def cb_year_clear(c: CallbackQuery):
     """Очистити фільтр років"""
     user_id = c.from_user.id
     
-    clear_year_filter(user_id)
+    await clear_year_filter(user_id)
     
     text = get_year_menu_text(None, None)
     kb = kb_year_filter(None, None, mode="from", page=0)

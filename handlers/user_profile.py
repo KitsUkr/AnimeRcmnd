@@ -15,34 +15,33 @@ from api.hikka_auth import HikkaAuth, get_hikka_token, delete_hikka_token, is_hi
 
 router = Router()
 
-def get_user_stats(user_id: int) -> dict:
+async def get_user_stats(user_id: int) -> dict:
     conn = db()
-    seen = conn.execute(
+    seen_row = await conn.execute(
         "SELECT COUNT(*) FROM user_seen WHERE user_id=%s",
         (user_id,),
-    ).fetchone()[0]
-
-    likes = conn.execute(
-        "SELECT COUNT(*) FROM user_feedback WHERE user_id=%s AND value=1",
-        (user_id,),
-    ).fetchone()[0] or 0
-
-    return {
-        "seen": seen,
-        "likes": likes,
-    }
-
-def get_liked_count(user_id: int) -> int:
-    conn = db()
-    row = conn.execute(
+    ).fetchone()
+    likes_row = await conn.execute(
         "SELECT COUNT(*) FROM user_feedback WHERE user_id=%s AND value=1",
         (user_id,),
     ).fetchone()
-    return int(row[0] or 0)
 
-def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
+    return {
+        "seen": int(seen_row[0]) if seen_row else 0,
+        "likes": int(likes_row[0]) if likes_row else 0,
+    }
+
+async def get_liked_count(user_id: int) -> int:
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
+        "SELECT COUNT(*) FROM user_feedback WHERE user_id=%s AND value=1",
+        (user_id,),
+    ).fetchone()
+    return int(row[0] or 0) if row else 0
+
+async def get_liked_snapshot(user_id: int, idx: int) -> dict | None:
+    conn = db()
+    row = await conn.execute(
         """
         SELECT anime_id, title, poster_url, hikka_url,
                year, score, episodes_total, genres_json,
@@ -132,19 +131,19 @@ def kb_likes_photo(idx: int, total: int, has_watch: bool) -> InlineKeyboardMarku
 
     return kb
 
-def clear_likes(user_id: int) -> int:
-    with transaction():
+async def clear_likes(user_id: int) -> int:
+    async with transaction():
         conn = db()
-        cur = conn.execute(
+        cur = await conn.execute(
             "DELETE FROM user_feedback WHERE user_id=%s AND value=1",
             (user_id,),
         )
         return cur.rowcount
 
-def unlike_title(user_id: int, anime_id: str) -> None:
-    with transaction():
+async def unlike_title(user_id: int, anime_id: str) -> None:
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             "DELETE FROM user_feedback WHERE user_id=%s AND anime_id=%s AND value=1",
             (user_id, anime_id),
         )
@@ -158,8 +157,8 @@ async def send_profile(target: Message, user_id: int, *, edit: bool = False):
             await target.answer(msg)
         return
 
-    stats = get_user_stats(user_id)
-    total = get_total_translated_titles()
+    stats = await get_user_stats(user_id)
+    total = await get_total_translated_titles()
 
     text = t.PROFILE_TEXT.format(
         user_id=user_id,
@@ -246,9 +245,9 @@ def render_like_card(s: dict) -> str:
     year = f" ({s['year']})" if s.get("year") else ""
     score = f"⭐ <b>{s['score']:.1f}</b>" if isinstance(s.get("score"), float) else ""
     eps = f" · <b>{s['episodes_total']}</b> еп." if s.get("episodes_total") else ""
-    ctype = f" · {get_name_by_slug(s['content_type'])}" if s.get("content_type") else ""
-    genres = f"\nЖанри: <i>{', '.join(s['genres'])}</i>" if s.get("genres") else ""
-    link_line = f"\n\n🔎 <a href=\"{html.escape(s['hikka_url'])}\">Сторінка на Hikka</a>" if s.get("hikka_url") else ""
+    ctype = f" · {html.escape(get_name_by_slug(s['content_type']))}" if s.get("content_type") else ""
+    genres = f"\nЖанри: <i>{html.escape(', '.join(s['genres']))}</i>" if s.get("genres") else ""
+    link_line = f"\n\n🔎 <a href=\"{html.escape(s['hikka_url'], quote=True)}\">Сторінка на Hikka</a>" if s.get("hikka_url") else ""
 
     base = (
         f"{t.FAVORITES_TITLE}\n\n"
@@ -265,7 +264,7 @@ def render_like_card(s: dict) -> str:
     return base + f"\n\n<i>📖 Синопсис:</i> {synopsis}" + link_line
 
 async def show_liked(target: Message, user_id: int, idx: int):
-    total = get_liked_count(user_id)
+    total = await get_liked_count(user_id)
     if total <= 0:
         await safe_edit_text(target,
             t.FAVORITES_EMPTY,
@@ -276,7 +275,7 @@ async def show_liked(target: Message, user_id: int, idx: int):
         return
 
     idx = max(0, min(idx, total - 1))
-    snap = get_liked_snapshot(user_id, idx)
+    snap = await get_liked_snapshot(user_id, idx)
     if not snap:
         await safe_edit_text(target,
             t.FAVORITES_LOAD_ERROR,
@@ -353,14 +352,14 @@ def kb_likes_torrents(idx: int, watch_links: list[dict]) -> InlineKeyboardMarkup
 
 async def open_likes_viewer(c: CallbackQuery, idx: int):
     user_id = c.from_user.id
-    total = get_liked_count(user_id)
+    total = await get_liked_count(user_id)
 
     if total <= 0:
         await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
-    snap = get_liked_snapshot(user_id, idx)
+    snap = await get_liked_snapshot(user_id, idx)
     if not snap:
         await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
@@ -414,7 +413,7 @@ async def prof_unlike(c: CallbackQuery):
         return
 
     user_id = c.from_user.id
-    total_before = get_liked_count(user_id)
+    total_before = await get_liked_count(user_id)
     if total_before <= 0:
         await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
@@ -425,14 +424,14 @@ async def prof_unlike(c: CallbackQuery):
         idx = 0
     idx = max(0, min(idx, total_before - 1))
 
-    snap = get_liked_snapshot(user_id, idx)
+    snap = await get_liked_snapshot(user_id, idx)
     if not snap:
         await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
 
-    unlike_title(user_id, snap["anime_id"])
+    await unlike_title(user_id, snap["anime_id"])
 
-    total_after = get_liked_count(user_id)
+    total_after = await get_liked_count(user_id)
     if total_after <= 0:
         try:
             if c.message:
@@ -452,7 +451,7 @@ async def prof_unlike(c: CallbackQuery):
     # Update the view with the next item
     new_idx = min(idx, total_after - 1)
 
-    new_snap = get_liked_snapshot(user_id, new_idx)
+    new_snap = await get_liked_snapshot(user_id, new_idx)
     if not new_snap:
         await c.answer(t.ALERT_UPDATE_LIST_ERROR, show_alert=True)
         return
@@ -488,7 +487,7 @@ async def prof_likes_photo_pager(c: CallbackQuery):
         return
 
     user_id = c.from_user.id
-    total = get_liked_count(user_id)
+    total = await get_liked_count(user_id)
     if total <= 0:
         await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
@@ -499,7 +498,7 @@ async def prof_likes_photo_pager(c: CallbackQuery):
         idx = 0
     idx = max(0, min(idx, total - 1))
 
-    snap = get_liked_snapshot(user_id, idx)
+    snap = await get_liked_snapshot(user_id, idx)
     if not snap:
         await c.answer(t.ALERT_LOAD_ERROR, show_alert=True)
         return
@@ -561,13 +560,13 @@ async def prof_likes_watch(c: CallbackQuery):
     except Exception:
         idx = 0
 
-    total = get_liked_count(c.from_user.id)
+    total = await get_liked_count(c.from_user.id)
     if total <= 0:
         await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
-    snap = get_liked_snapshot(c.from_user.id, idx)
+    snap = await get_liked_snapshot(c.from_user.id, idx)
     if not snap or not snap.get("watch_links"):
         await c.answer(t.ALERT_NO_UA_RESOURCES, show_alert=True)
         return
@@ -588,13 +587,13 @@ async def prof_likes_torrents(c: CallbackQuery):
     except Exception:
         idx = 0
 
-    total = get_liked_count(c.from_user.id)
+    total = await get_liked_count(c.from_user.id)
     if total <= 0:
         await c.answer(t.ALERT_FAVORITES_EMPTY, show_alert=True)
         return
 
     idx = max(0, min(idx, total - 1))
-    snap = get_liked_snapshot(c.from_user.id, idx)
+    snap = await get_liked_snapshot(c.from_user.id, idx)
     if not snap or not snap.get("watch_links"):
         await c.answer(t.ALERT_NO_TORRENT_LINKS, show_alert=True)
         return
@@ -614,9 +613,9 @@ async def prof_likes_torrents(c: CallbackQuery):
         reply_markup=kb_likes_torrents(idx, snap["watch_links"])
     )
 
-def get_total_translated_titles() -> int | None:
+async def get_total_translated_titles() -> int | None:
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT value FROM bot_meta WHERE key=%s",
         ("total_translated_titles",),
     ).fetchone()
@@ -645,7 +644,7 @@ async def prof_back_to_profile(c: CallbackQuery):
 
 @router.callback_query(F.data == "prof:clear_likes")
 async def prof_clear_likes(c: CallbackQuery):
-    count = clear_likes(c.from_user.id)
+    count = await clear_likes(c.from_user.id)
     if count > 0:
         await c.answer(t.ALERT_FAVORITES_CLEARED, show_alert=True)
         if c.message:
@@ -653,17 +652,17 @@ async def prof_clear_likes(c: CallbackQuery):
     else:
         await c.answer(t.ALERT_FAVORITES_ALREADY_EMPTY, show_alert=True)
 
-def clear_user_history(user_id: int) -> int:
+async def clear_user_history(user_id: int) -> int:
     # Транзакція гарантує: або ВСЕ видалиться, або НІЧОГО (якщо помилка)
-    with transaction():
+    async with transaction():
         conn = db()
-        cur = conn.execute("DELETE FROM user_seen WHERE user_id=%s", (user_id,))
-        conn.execute("UPDATE user_state SET last_page=NULL, updated_at=%s WHERE user_id=%s", (int(time.time()), user_id))
+        cur = await conn.execute("DELETE FROM user_seen WHERE user_id=%s", (user_id,))
+        await conn.execute("UPDATE user_state SET last_page=NULL, updated_at=%s WHERE user_id=%s", (int(time.time()), user_id))
         return cur.rowcount
 
 @router.callback_query(F.data == "prof:clear_history")
 async def prof_clear_history(c: CallbackQuery):
-    count = clear_user_history(c.from_user.id)
+    count = await clear_user_history(c.from_user.id)
     if count > 0:
         await c.answer(t.ALERT_HISTORY_CLEARED, show_alert=True)
         if c.message:
@@ -683,11 +682,11 @@ async def prof_noop(c: CallbackQuery):
 async def cb_hikka_status(c: CallbackQuery):
     """Показує статус підключення до Hikka"""
     user_id = c.from_user.id
-    token_data = get_hikka_token(user_id)
+    token_data = await get_hikka_token(user_id)
 
     if token_data:
         token, username = token_data
-        name_display = f"<b>{username}</b>" if username else "підключено"
+        name_display = f"<b>{html.escape(str(username))}</b>" if username else "підключено"
         text = t.HIKKA_STATUS_CONNECTED.format(name_display=name_display)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t.BTN_HIKKA_LOGOUT, callback_data=HikkaCB(action="logout").pack())],
@@ -729,7 +728,7 @@ async def cb_hikka_login(c: CallbackQuery, hikka_auth: HikkaAuth):
 async def cb_hikka_logout(c: CallbackQuery):
     """Видаляє Hikka токен (logout)"""
     user_id = c.from_user.id
-    delete_hikka_token(user_id)
+    await delete_hikka_token(user_id)
     await c.answer(t.ALERT_HIKKA_LOGGED_OUT, show_alert=True)
 
     # Показуємо оновлений статус

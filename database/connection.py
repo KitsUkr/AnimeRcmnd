@@ -1,9 +1,11 @@
-import psycopg2
 import os
-import threading
-from contextlib import contextmanager
-from typing import Generator, Any
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterable
+
 from dotenv import load_dotenv
+from psycopg import AsyncConnection
+from psycopg_pool import AsyncConnectionPool
 
 load_dotenv()
 
@@ -12,113 +14,121 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
     raise RuntimeError("Вкажи DATABASE_URL у .env (DATABASE_URL=postgresql://...)")
 
+_pool: AsyncConnectionPool | None = None
+_active_connection: ContextVar["ConnectionWrapper | None"] = ContextVar(
+    "active_db_connection", default=None
+)
+
+
+class QueryResult:
+    def __init__(self, rows: list[Any], rowcount: int):
+        self._rows = rows
+        self.rowcount = rowcount
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return self._rows
+
+
+class Query:
+    def __init__(self, executor: Callable[[], Awaitable[QueryResult]]):
+        self._executor = executor
+
+    def __await__(self):
+        return self._executor().__await__()
+
+    async def fetchone(self):
+        return (await self._executor()).fetchone()
+
+    async def fetchall(self):
+        return (await self._executor()).fetchall()
+
 
 class ConnectionWrapper:
-    """Wrapper that provides SQLite-like execute() method for psycopg2 connection."""
-    
-    def __init__(self, conn: psycopg2.extensions.connection):
+    def __init__(self, conn: AsyncConnection):
         self._conn = conn
-        self._cursor = None
-    
-    def execute(self, query: str, params: tuple = None):
-        """Execute a query and return cursor (like SQLite connection.execute())."""
-        if self._cursor is None or self._cursor.closed:
-            self._cursor = self._conn.cursor()
-        self._cursor.execute(query, params or ())
-        return self._cursor
-    
-    def executemany(self, query: str, params_list):
-        """Execute a query with multiple parameter sets."""
-        if self._cursor is None or self._cursor.closed:
-            self._cursor = self._conn.cursor()
-        self._cursor.executemany(query, params_list)
-        return self._cursor
-    
-    def commit(self):
-        self._conn.commit()
-    
-    def rollback(self):
-        self._conn.rollback()
-    
-    def close(self):
-        if self._cursor and not self._cursor.closed:
-            self._cursor.close()
-        self._conn.close()
-    
-    @property
-    def closed(self):
-        return self._conn.closed
+
+    async def _run(self, query: str, params: Iterable | None = None, many: bool = False) -> QueryResult:
+        async with self._conn.cursor() as cursor:
+            if many:
+                await cursor.executemany(query, params or ())
+            else:
+                await cursor.execute(query, params or ())
+            rows = await cursor.fetchall() if cursor.description else []
+            return QueryResult(rows, cursor.rowcount)
+
+    def execute(self, query: str, params: Iterable | None = None) -> Query:
+        return Query(lambda: self._run(query, params))
+
+    def executemany(self, query: str, params_list: Iterable) -> Query:
+        return Query(lambda: self._run(query, params_list, many=True))
 
 
-class DBHelper:
-    _instance = None
-    _lock = threading.Lock()
-    _conn = None
-    _wrapper = None
-    _transaction_depth = 0
+class Database:
+    async def _run_once(self, query: str, params: Iterable | None = None, many: bool = False) -> QueryResult:
+        active = _active_connection.get()
+        if active is not None:
+            return await active._run(query, params, many)
 
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super(DBHelper, cls).__new__(cls)
-        return cls._instance
+        pool = _get_pool()
+        async with pool.connection() as conn:
+            async with conn.transaction():
+                return await ConnectionWrapper(conn)._run(query, params, many)
 
-    def get_connection(self) -> ConnectionWrapper:
-        if self._conn is None or self._conn.closed:
-            self._conn = psycopg2.connect(DATABASE_URL)
-            self._conn.autocommit = False
-            self._wrapper = ConnectionWrapper(self._conn)
-        return self._wrapper
+    def execute(self, query: str, params: Iterable | None = None) -> Query:
+        return Query(lambda: self._run_once(query, params))
 
-    @contextmanager
-    def transaction(self) -> Generator[None, None, None]:
-        """Context manager for database transactions with nested call support.
-        
-        Usage:
-            with db.transaction():
-                # multiple write operations
-                mark_seen(...)
-                set_feedback(...)
-        """
-        wrapper = self.get_connection()
-        is_outer = (self._transaction_depth == 0)
-        
-        self._transaction_depth += 1
-        
-        try:
+    def executemany(self, query: str, params_list: Iterable) -> Query:
+        return Query(lambda: self._run_once(query, params_list, many=True))
+
+
+def _get_pool() -> AsyncConnectionPool:
+    if _pool is None:
+        raise RuntimeError("Пул БД не ініціалізовано. Виконай init_db_pool() при старті.")
+    return _pool
+
+
+async def init_db_pool() -> None:
+    global _pool
+    if _pool is not None:
+        return
+    _pool = AsyncConnectionPool(
+        DATABASE_URL,
+        min_size=int(os.getenv("DB_POOL_MIN_SIZE", "1")),
+        max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
+        timeout=10,
+        max_idle=300,
+        open=False,
+    )
+    await _pool.open()
+
+
+async def close_db_pool() -> None:
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+
+
+def db() -> Database:
+    return Database()
+
+
+@asynccontextmanager
+async def transaction() -> AsyncIterator[None]:
+    active = _active_connection.get()
+    if active is not None:
+        async with active._conn.transaction():
             yield
-            if is_outer:
-                wrapper.commit()
-        except Exception:
-            if is_outer:
-                wrapper.rollback()
-            raise
-        finally:
-            self._transaction_depth -= 1
+        return
 
-    def close(self):
-        if self._wrapper and not self._wrapper.closed:
-            self._wrapper.close()
-            self._conn = None
-            self._wrapper = None
-            self._transaction_depth = 0
-
-
-_db_helper = DBHelper()
-
-
-def db() -> ConnectionWrapper:
-    """Returns the persistent database connection wrapper with execute() method."""
-    return _db_helper.get_connection()
-
-
-def transaction():
-    """Context manager for database transactions.
-    
-    Usage:
-        with transaction():
-            mark_seen(...)
-            set_feedback(...)
-    """
-    return _db_helper.transaction()
+    pool = _get_pool()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            token = _active_connection.set(ConnectionWrapper(conn))
+            try:
+                yield
+            finally:
+                _active_connection.reset(token)

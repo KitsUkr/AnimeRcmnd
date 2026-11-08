@@ -3,12 +3,13 @@ from collections import OrderedDict
 from utils.ui_shared import Anime, format_caption, MAX_CAPTION, kb_for_anime, get_filter_alert_text
 import texts as t
 import asyncio
+import html
 import json
 from handlers.user_profile import router as profile_router
 import os
 import time
 import uuid
-from database.connection import db, transaction
+from database.connection import close_db_pool, db, init_db_pool, transaction
 from database.queries import (
     INSERT_USER_SEEN, SELECT_USER_SEEN_BY_USER, DELETE_USER_SEEN_BY_USER,
     INSERT_USER_FEEDBACK, INSERT_USER_STATE_LAST_PAGE, SELECT_USER_STATE_LAST_PAGE,
@@ -16,7 +17,7 @@ from database.queries import (
 )
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 from handlers.user_profile import send_profile
-from handlers.admin_panel import router as admin_router, init_admin_db, touch_user, is_admin
+from handlers.admin_panel import router as admin_router, touch_user, is_admin
 
 from handlers.filters.genre import router as genre_router, get_selected_genres, get_name_by_slug, get_all_genres, get_excluded_genres, GENRE_MAP
 
@@ -33,7 +34,7 @@ from handlers.library_broadcast import (
     get_notifications_enabled,
 )
 from api.hikka_client import HikkaClient, get_or_refresh_watch_links, AllAnimeSeenError, FilteredAnimeExhaustedError
-from api.hikka_auth import HikkaAuth, init_hikka_auth_db, is_hikka_logged_in
+from api.hikka_auth import HikkaAuth, is_hikka_logged_in
 from utils.safe_edit import safe_edit_text, safe_edit_media, safe_edit_reply_markup
 from aiogram import BaseMiddleware
 from utils.callbacks import MenuCB, AnimeCB, WatchCB, AdminCB, HikkaCB, SettingsCB, NotifCB
@@ -55,31 +56,9 @@ CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError(t.ERROR_NO_BOT_TOKEN)
 
-def init_db() -> None:
-    """Таблиці створюються скриптом міграції migrate_sqlite_to_postgres.py,
-    але нові колонки додаємо тут для зручності."""
-    with transaction():
-        conn = db()
-        try:
-            conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS selected_seasons_json text;")
-            conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS excluded_seasons_json text;")
-            conn.execute("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS rating_min real;")
-            conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS season text;")
-            conn.execute("ALTER TABLE anime_library ADD COLUMN IF NOT EXISTS inserted_at bigint;")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_anime_inserted_at "
-                "ON anime_library(inserted_at DESC) WHERE inserted_at IS NOT NULL;"
-            )
-            conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS season text;")
-            conn.execute("ALTER TABLE cb_map ADD COLUMN IF NOT EXISTS watch_links_json text;")
-            conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS ua_poster_url text;")
-            conn.execute("ALTER TABLE user_feedback ADD COLUMN IF NOT EXISTS content_type text;")
-        except Exception as e:
-            print(f"Помилка створення колонок: {e}")
-
-
-init_admin_db()
-init_hikka_auth_db()
+async def init_db() -> None:
+    from database.schema import init_schema
+    await init_schema()
 
 class DependencyMiddleware(BaseMiddleware):
     def __init__(self, hikka_client, start_text: str, kb_start_func, db_funcs: dict):
@@ -101,15 +80,15 @@ class DependencyMiddleware(BaseMiddleware):
         data["db_funcs"] = self.db_funcs
         return await handler(event, data)
 
-def mark_seen(user_id: int, anime_id: str) -> None:
-    with transaction():
+async def mark_seen(user_id: int, anime_id: str) -> None:
+    async with transaction():
         conn = db()
-        conn.execute(INSERT_USER_SEEN, (user_id, anime_id, int(time.time())))
+        await conn.execute(INSERT_USER_SEEN, (user_id, anime_id, int(time.time())))
 
-def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
-    with transaction():
+async def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             INSERT_USER_FEEDBACK,
             (
                 user_id,
@@ -130,11 +109,11 @@ def set_feedback(user_id: int, anime: "Anime", value: int) -> None:
             ),
         )
 
-def clear_history(user_id: int) -> None:
-    with transaction():
+async def clear_history(user_id: int) -> None:
+    async with transaction():
         conn = db()
-        conn.execute(DELETE_USER_SEEN_BY_USER, (user_id,))
-        conn.execute(UPDATE_USER_STATE_CLEAR_PAGE, (int(time.time()), user_id))
+        await conn.execute(DELETE_USER_SEEN_BY_USER, (user_id,))
+        await conn.execute(UPDATE_USER_STATE_CLEAR_PAGE, (int(time.time()), user_id))
 
 def is_telegram_poster_error(error: Exception) -> bool:
     """Перевіряє чи є помилка пов'язана з проблемами Telegram при відправці постера"""
@@ -152,12 +131,12 @@ def is_telegram_poster_error(error: Exception) -> bool:
     ]
     return any(err in error_msg for err in telegram_errors)
 
-def remove_invalid_ua_poster(slug: str) -> None:
+async def remove_invalid_ua_poster(slug: str) -> None:
     """Видаляє невалідний UA постер з бази даних"""
     try:
-        with transaction():
+        async with transaction():
             conn = db()
-            conn.execute(
+            await conn.execute(
                 "UPDATE anime_library SET ua_poster_url = NULL WHERE slug = %s",
                 (slug,)
             )
@@ -168,10 +147,10 @@ def remove_invalid_ua_poster(slug: str) -> None:
         print(f"[POSTER] Помилка видалення UA постера для {slug}: {e}")
 
 
-def get_user_filters(user_id: int) -> dict:
+async def get_user_filters(user_id: int) -> dict:
     """Завантажує ВСІ фільтри одним SQL-запитом. Повертає dict."""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         """SELECT selected_genres_json, excluded_genres_json,
                   selected_content_types_json, excluded_content_types_json,
                   year_from, year_to,
@@ -217,29 +196,29 @@ def has_any_filter(f: dict) -> bool:
         or f["seasons"] or (f["rating_min"] is not None)
     )
 
-def get_excluded_ids(user_id: int) -> List[str]:
+async def get_excluded_ids(user_id: int) -> List[str]:
     conn = db()
-    seen = conn.execute(
+    seen = await conn.execute(
         "SELECT anime_id FROM user_seen WHERE user_id=%s", (user_id,)
     ).fetchall()
     return list({r[0] for r in seen})
 
-def get_last_page(user_id: int) -> Optional[int]:
+async def get_last_page(user_id: int) -> Optional[int]:
     conn = db()
-    row = conn.execute(SELECT_USER_STATE_LAST_PAGE, (user_id,)).fetchone()
+    row = await conn.execute(SELECT_USER_STATE_LAST_PAGE, (user_id,)).fetchone()
     return int(row[0]) if row and row[0] is not None else None
 
-def set_last_page(user_id: int, page: int) -> None:
-    with transaction():
+async def set_last_page(user_id: int, page: int) -> None:
+    async with transaction():
         conn = db()
-        conn.execute(INSERT_USER_STATE_LAST_PAGE, (user_id, int(page), int(time.time())))
+        await conn.execute(INSERT_USER_STATE_LAST_PAGE, (user_id, int(page), int(time.time())))
 
 # Час неактивності в секундах, після якого знову показувати алерт про фільтри (15 хв)
 FILTER_ALERT_INACTIVITY_SECONDS = 15 * 60
 
-def get_filter_alert_shown(user_id: int) -> bool:
+async def get_filter_alert_shown(user_id: int) -> bool:
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT filter_alert_shown, last_recommendation_at FROM user_state WHERE user_id = %s",
         (user_id,)
     ).fetchone()
@@ -262,12 +241,12 @@ def get_filter_alert_shown(user_id: int) -> bool:
     
     return True  # Alert was shown and user is still active
 
-def set_filter_alert_shown(user_id: int) -> None:
+async def set_filter_alert_shown(user_id: int) -> None:
     """Mark that the filter alert has been shown and update last recommendation time"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, filter_alert_shown, last_recommendation_at, updated_at)
             VALUES (%s, 1, %s, %s)
@@ -277,12 +256,12 @@ def set_filter_alert_shown(user_id: int) -> None:
             (user_id, now, now)
         )
 
-def update_last_recommendation_time(user_id: int) -> None:
+async def update_last_recommendation_time(user_id: int) -> None:
     """Update the last recommendation timestamp to keep session active"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, last_recommendation_at, updated_at)
             VALUES (%s, %s, %s)
@@ -292,11 +271,11 @@ def update_last_recommendation_time(user_id: int) -> None:
             (user_id, now, now)
         )
 
-def reset_filter_alert(user_id: int) -> None:
+async def reset_filter_alert(user_id: int) -> None:
     """Reset the filter alert flag (e.g., when filters are changed)"""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             UPDATE user_state 
             SET filter_alert_shown = 0, updated_at = %s
@@ -305,20 +284,20 @@ def reset_filter_alert(user_id: int) -> None:
             (int(time.time()), user_id)
         )
 
-def is_in_genre_menu(user_id: int) -> bool:
+async def is_in_genre_menu(user_id: int) -> bool:
     """Check if user is currently in the genre selection menu"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT in_genre_menu FROM user_state WHERE user_id = %s",
         (user_id,)
     ).fetchone()
     return bool(row[0]) if row and row[0] is not None else False
 
-def enter_genre_menu(user_id: int, message_id: int) -> None:
+async def enter_genre_menu(user_id: int, message_id: int) -> None:
     """Mark that user entered the genre menu and store the message ID"""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, in_genre_menu, genre_menu_message_id, updated_at)
             VALUES (%s, 1, %s, %s)
@@ -328,11 +307,11 @@ def enter_genre_menu(user_id: int, message_id: int) -> None:
             (user_id, message_id, int(time.time()))
         )
 
-def exit_genre_menu(user_id: int) -> None:
+async def exit_genre_menu(user_id: int) -> None:
     """Mark that user left the genre menu"""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             UPDATE user_state 
             SET in_genre_menu = 0, genre_menu_message_id = NULL, updated_at = %s
@@ -341,29 +320,29 @@ def exit_genre_menu(user_id: int) -> None:
             (int(time.time()), user_id)
         )
 
-def get_genre_menu_message_id(user_id: int) -> Optional[int]:
+async def get_genre_menu_message_id(user_id: int) -> Optional[int]:
     """Get the message ID of the genre menu for this user"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT genre_menu_message_id FROM user_state WHERE user_id = %s",
         (user_id,)
     ).fetchone()
     return int(row[0]) if row and row[0] is not None else None
 
-def is_genre_hint_shown(user_id: int) -> bool:
+async def is_genre_hint_shown(user_id: int) -> bool:
     """Check if genre menu hint was shown to this user"""
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT genre_hint_shown FROM user_state WHERE user_id = %s",
         (user_id,)
     ).fetchone()
     return bool(row[0]) if row and row[0] is not None else False
 
-def set_genre_hint_shown(user_id: int) -> None:
+async def set_genre_hint_shown(user_id: int) -> None:
     """Mark that genre menu hint was shown to this user"""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, genre_hint_shown, updated_at)
             VALUES (%s, 1, %s)
@@ -373,11 +352,11 @@ def set_genre_hint_shown(user_id: int) -> None:
             (user_id, int(time.time()))
         )
 
-def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[List[Dict], int]:
+async def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[List[Dict], int]:
     offset = page * per_page
     conn = db()
     
-    row = conn.execute("SELECT COUNT(*) FROM user_seen WHERE user_id=%s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT COUNT(*) FROM user_seen WHERE user_id=%s", (user_id,)).fetchone()
     total = row[0] if row else 0
     
     if total == 0:
@@ -393,7 +372,7 @@ def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[L
         LIMIT %s OFFSET %s
     """
     
-    rows = conn.execute(query, (user_id, per_page, offset)).fetchall()
+    rows = await conn.execute(query, (user_id, per_page, offset)).fetchall()
     
     items = []
     for r in rows:
@@ -408,20 +387,20 @@ def get_user_history(user_id: int, page: int = 0, per_page: int = 10) -> Tuple[L
     return items, total
 
 # ✅ зберігаємо повний снапшот Anime у cb_map
-def save_cb_map(cb_id: str, anime: "Anime") -> str:
+async def save_cb_map(cb_id: str, anime: "Anime") -> str:
     """Зберігає або оновлює запис в cb_map. Повертає cb_id (існуючий або новий)."""
-    with transaction():
+    async with transaction():
         conn = db()
         
         # Перевіряємо чи вже є запис для цього anime_id
-        existing = conn.execute(
+        existing = await conn.execute(
             "SELECT cb_id FROM cb_map WHERE anime_id = %s",
             (anime.id,)
         ).fetchone()
         
         if existing:
             # Оновлюємо існуючий запис, зберігаючи cb_id
-            conn.execute(
+            await conn.execute(
                 """
                 UPDATE cb_map SET 
                     description = %s,
@@ -439,7 +418,7 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
             return existing[0]  # Повертаємо існуючий cb_id
         else:
             # Створюємо новий запис
-            conn.execute(
+            await conn.execute(
                 INSERT_CB_MAP,
                 (
                     cb_id,
@@ -451,10 +430,10 @@ def save_cb_map(cb_id: str, anime: "Anime") -> str:
             )
             return cb_id  # Повертаємо новий cb_id
 
-def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
+async def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
     """Повертає (anime_id, title) або None."""
     conn = db()
-    row = conn.execute(SELECT_CB_MAP_BY_ID, (cb_id,)).fetchone()
+    row = await conn.execute(SELECT_CB_MAP_BY_ID, (cb_id,)).fetchone()
 
     if not row:
         return None
@@ -463,9 +442,9 @@ def load_cb_map(cb_id: str) -> Optional[Tuple[str, str]]:
     return str(anime_id), str(title or anime_id)
 
 # ✅ повністю відновлюємо Anime за cb_id (працює після рестарту)
-def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
+async def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
     conn = db()
-    row = conn.execute(SELECT_CB_MAP_FULL, (cb_id,)).fetchone()
+    row = await conn.execute(SELECT_CB_MAP_FULL, (cb_id,)).fetchone()
 
     if not row:
         return None
@@ -506,13 +485,6 @@ def load_anime_by_cb(cb_id: str) -> Optional["Anime"]:
         content_type=str(content_type) if content_type else None,
     )
 
-def resolve_anime_id_by_cb(cb_id: str) -> Optional[str]:
-    a = anime_cache.get(cb_id)
-    if a:
-        return a.id
-    row = load_cb_map(cb_id)
-    return row[0] if row else None  # row = (anime_id, title)
-
 # =========================
 # Telegram UI
 # =========================
@@ -520,10 +492,10 @@ START_TEXT = t.START_TEXT
 
 CHANNEL_SUBSCRIBE_TEXT = t.CHANNEL_SUBSCRIBE_TEXT
 
-def is_new_user(user_id: int) -> bool:
+async def is_new_user(user_id: int) -> bool:
     """Перевіряє чи користувач новий (немає запису в bot_users)"""
     conn = db()
-    row = conn.execute("SELECT 1 FROM bot_users WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT 1 FROM bot_users WHERE user_id = %s", (user_id,)).fetchone()
     return row is None
 
 def kb_channel_subscribe() -> InlineKeyboardMarkup:
@@ -677,7 +649,7 @@ async def cb_noop(c: CallbackQuery):
 @router.message(Command("start"))
 async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth: HikkaAuth):
     user_id = message.from_user.id
-    new_user = is_new_user(user_id)
+    new_user = await is_new_user(user_id)
     
     # Парсимо deep link payload (наприклад /start ad_instagram_feb)
     ad_source = None
@@ -705,10 +677,11 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
             success, result = await hikka_auth.login_user(user_id, request_reference)
 
             # Формуємо текст результату
+            safe_result = html.escape(str(result))
             if success:
-                result_text = t.HIKKA_LOGIN_SUCCESS.format(username=result)
+                result_text = t.HIKKA_LOGIN_SUCCESS.format(username=safe_result)
             else:
-                result_text = t.HIKKA_LOGIN_FAIL.format(error=result)
+                result_text = t.HIKKA_LOGIN_FAIL.format(error=safe_result)
 
             result_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t.BTN_BACK, callback_data=SettingsCB(action="menu").pack())],
@@ -737,15 +710,17 @@ async def cmd_start(message: Message, start_text: str, kb_start_func, hikka_auth
         ad_source = payload[3:]  # "ad_instagram_feb" -> "instagram_feb"
     
     # Зберігаємо/оновлюємо користувача (ad_source зберігається тільки для нових)
-    with transaction():
-        touch_user(user_id, message.from_user.username, message.from_user.first_name, 
-                   ad_source=ad_source if new_user else None)
+    async with transaction():
+        await touch_user(
+            user_id, message.from_user.username, message.from_user.first_name,
+            ad_source=ad_source if new_user else None,
+        )
     
     if new_user and CHANNEL_USERNAME:
         # Новий користувач — показуємо рекомендацію підписки (без reply-клавіатури)
         user = message.from_user
         name = user.first_name or (f"@{user.username}" if user.username else None)
-        name_part = f", {name}" if name else ""
+        name_part = f", {html.escape(name)}" if name else ""
         await message.answer(CHANNEL_SUBSCRIBE_TEXT.format(name_part=name_part), reply_markup=kb_channel_subscribe())
     else:
         # Існуючий користувач — одразу стартове меню + reply-клавіатура
@@ -834,9 +809,9 @@ async def cb_profile_back(callback: CallbackQuery, start_text: str, kb_start_fun
     else:
         await safe_edit_text(callback.message, start_text, reply_markup=kb_start_func())
 
-def kb_settings(user_id: int) -> InlineKeyboardMarkup:
+async def kb_settings(user_id: int) -> InlineKeyboardMarkup:
     """Клавіатура меню Налаштувань"""
-    notif_on = get_notifications_enabled(user_id)
+    notif_on = await get_notifications_enabled(user_id)
     notif_text = t.BTN_SETTINGS_NOTIF_ON if notif_on else t.BTN_SETTINGS_NOTIF_OFF
     # Якщо увімкнено — клік веде на діалог підтвердження вимкнення (count=0 = з Settings).
     # Якщо вимкнено — клік одразу вмикає назад.
@@ -854,7 +829,7 @@ async def cb_settings_menu(callback: CallbackQuery):
     """Меню Налаштувань"""
     await callback.answer()
     text = t.SETTINGS_TEXT
-    await safe_edit_text(callback.message, text, reply_markup=kb_settings(callback.from_user.id))
+    await safe_edit_text(callback.message, text, reply_markup=await kb_settings(callback.from_user.id))
 
 @router.callback_query(SettingsCB.filter(F.action == "back"))
 async def cb_settings_back(callback: CallbackQuery, start_text: str, kb_start_func):
@@ -865,7 +840,7 @@ async def cb_settings_back(callback: CallbackQuery, start_text: str, kb_start_fu
 async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
     """Рекомендувати з хабу фільтрів — тільки якщо є хоча б один активний фільтр."""
     user_id = callback.from_user.id
-    f = get_user_filters(user_id)
+    f = await get_user_filters(user_id)
 
     if not has_any_filter(f):
         await callback.answer(t.ALERT_NEED_FILTER, show_alert=True)
@@ -876,17 +851,15 @@ async def cb_recommend_from_filters(callback: CallbackQuery, hikka_client: Hikka
 async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db_funcs: dict):
     user_id = callback.from_user.id
     
-    get_excluded = db_funcs['get_excluded_ids']
     get_last = db_funcs['get_last_page']
     set_last = db_funcs['set_last_page']
     mark_seen = db_funcs['mark_seen']
     save_cb_map = db_funcs['save_cb_map']
 
-    excluded_ids = get_excluded(user_id)
-    last_page = get_last(user_id)
+    last_page = await get_last(user_id)
     
     
-    f = get_user_filters(user_id)
+    f = await get_user_filters(user_id)
     search_genres = f["genres"]
     excluded_genres = f["excluded_genres"]
     selected_content_types = f["content_types"]
@@ -902,9 +875,8 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
 
     has_filters = has_any_filter(f)
     
-    # Filter alert logic
-    if has_filters and not get_filter_alert_shown(user_id):
-        
+    answered = False
+    if has_filters and not await get_filter_alert_shown(user_id):
         alert_text = get_filter_alert_text(
             selected_genres=search_genres,
             excluded_genres=excluded_genres,
@@ -920,12 +892,15 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
         )
         if alert_text:
             await callback.answer(alert_text, show_alert=True)
-            set_filter_alert_shown(user_id)
+            answered = True
+            await set_filter_alert_shown(user_id)
 
-    # Core Logic
+    if not answered:
+        await callback.answer()
+
     try:
         anime, used_page = await hikka_client.random_anime(
-            exclude_ids=excluded_ids,
+            user_id=user_id,
             last_page=last_page,
             genres=search_genres,
             genre_names=search_genre_names,
@@ -989,37 +964,32 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
 
     cb_id = uuid.uuid4().hex[:12]
     
-    with transaction():
-        touch_user(user_id, callback.from_user.username, callback.from_user.first_name)
-        set_last(user_id, used_page)
-        mark_seen(user_id, anime.id)
+    async with transaction():
+        await touch_user(user_id, callback.from_user.username, callback.from_user.first_name)
+        await set_last(user_id, used_page)
         # save_cb_map повертає існуючий cb_id якщо аніме вже є, або новий
-        cb_id = save_cb_map(cb_id, anime)
-        # Update last recommendation time to keep session active for filter alerts
-        update_last_recommendation_time(user_id)
-    
+        cb_id = await save_cb_map(cb_id, anime)
+        await update_last_recommendation_time(user_id)
+
     _cache_anime(cb_id, anime)
 
-    # Presentation Logic
-    has_filters = bool(search_genres or excluded_genres or selected_content_types or excluded_content_types or year_from or year_to or seasons or rating_min is not None)
+    has_filters = has_any_filter(f)
     caption_limit = 960 if has_filters else 1024
-    
     caption = format_caption(anime, max_length=caption_limit)
     kb = kb_for_anime(cb_id, has_filter=has_filters)
 
-    # Choose poster: UA > Hikka > None
-    final_poster_url = anime.ua_poster_url if anime.ua_poster_url else anime.poster_url
+    final_poster_url = anime.ua_poster_url or anime.poster_url
     has_ua_poster = bool(anime.ua_poster_url)
 
     async def send_anime_message(poster_url_to_use):
         if callback.message.photo:
-             await callback.message.edit_media(
+            await callback.message.edit_media(
                 media=InputMediaPhoto(
                     media=poster_url_to_use,
                     caption=caption,
-                    parse_mode=ParseMode.HTML
+                    parse_mode=ParseMode.HTML,
                 ),
-                reply_markup=kb
+                reply_markup=kb,
             )
         else:
             try:
@@ -1029,39 +999,37 @@ async def cb_random_anime(callback: CallbackQuery, hikka_client: HikkaClient, db
             await callback.message.answer_photo(poster_url_to_use, caption=caption, reply_markup=kb)
 
     if final_poster_url and final_poster_url.strip().startswith("http"):
-        poster_clean = final_poster_url.strip()
         try:
-            await send_anime_message(poster_clean)
+            await send_anime_message(final_poster_url.strip())
+            await mark_seen(user_id, anime.id)
             return
         except Exception as e:
             print(f"Failed to send/edit photo ({final_poster_url}): {e}")
-            # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
             if has_ua_poster and is_telegram_poster_error(e):
-                remove_invalid_ua_poster(anime.slug)
-            
-            # Fallback to Hikka if UA failed
+                await remove_invalid_ua_poster(anime.slug)
+
             if has_ua_poster and anime.poster_url and anime.poster_url.strip().startswith("http"):
-                print(f"[FALLBACK] Пробую Hikka постер замість битого UA")
+                print("[FALLBACK] Пробую Hikka постер замість битого UA")
                 try:
                     await send_anime_message(anime.poster_url.strip())
+                    await mark_seen(user_id, anime.id)
                     return
                 except Exception as ex2:
                     print(f"[FALLBACK] Failed: {ex2}")
 
-
-    # Fallback text
     if callback.message.photo:
         await callback.message.delete()
         await callback.message.answer(caption, reply_markup=kb)
     else:
         await safe_edit_text(callback.message, caption, reply_markup=kb)
+    await mark_seen(user_id, anime.id)
 
 @router.callback_query(AnimeCB.filter(F.action == "watch"))
 async def cb_watch_list(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dict, hikka_client: HikkaClient):
     cb_id = callback_data.id
     load_map = db_funcs['load_cb_map']
     
-    row = load_map(cb_id)
+    row = await load_map(cb_id)
     if not row:
         await callback.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
@@ -1081,7 +1049,7 @@ async def cb_torrent_list(callback: CallbackQuery, callback_data: AnimeCB, db_fu
     cb_id = callback_data.id
     load_map = db_funcs['load_cb_map']
     
-    row = load_map(cb_id)
+    row = await load_map(cb_id)
     if not row:
         await callback.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
@@ -1116,7 +1084,7 @@ async def cb_back_to_anime(callback: CallbackQuery, callback_data: AnimeCB):
         await safe_edit_reply_markup(callback.message, reply_markup=recent_kb)
         return
 
-    f = get_user_filters(user_id)
+    f = await get_user_filters(user_id)
     has_filters = has_any_filter(f)
 
     await callback.answer()
@@ -1129,19 +1097,21 @@ async def cb_rate(callback: CallbackQuery, callback_data: AnimeCB, db_funcs: dic
     val = 1 
     
     load_anime = db_funcs['load_anime_by_cb']
-    anime = anime_cache.get(cb_id) or load_anime(cb_id)
-    
+    anime = anime_cache.get(cb_id)
+    if anime is None:
+        anime = await load_anime(cb_id)
+
     if not anime:
         await callback.answer(t.ALERT_DATA_STALE_DOT, show_alert=True)
         return
 
     set_fb = db_funcs['set_feedback']
-    set_fb(callback.from_user.id, anime, val)
+    await set_fb(callback.from_user.id, anime, val)
 
     # --- Hikka sync: додаємо в "planned" якщо юзер залогінений ---
     user_id = callback.from_user.id
     hikka_msg = ""
-    if hikka_auth.is_configured and is_hikka_logged_in(user_id):
+    if hikka_auth.is_configured and await is_hikka_logged_in(user_id):
         try:
             success, status = await hikka_auth.add_to_planned(user_id, anime.slug)
             if success:
@@ -1256,7 +1226,7 @@ async def cb_history_pages(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     
     # Отримуємо загальну кількість записів
     get_hist = db_funcs['get_user_history']
-    _, total = get_hist(user_id, page=0, per_page=1)
+    _, total = await get_hist(user_id, page=0, per_page=1)
     
     await c.answer()
     
@@ -1271,7 +1241,7 @@ async def cb_history_watch(c: CallbackQuery, callback_data: HistoryCB, db_funcs:
     page_idx = callback_data.page
     
     load_map = db_funcs['load_cb_map']
-    row = load_map(cb_id)
+    row = await load_map(cb_id)
     if not row:
         await c.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
@@ -1296,7 +1266,7 @@ async def cb_history_torrents(c: CallbackQuery, callback_data: HistoryCB, db_fun
     page_idx = callback_data.page
     
     load_map = db_funcs['load_cb_map']
-    row = load_map(cb_id)
+    row = await load_map(cb_id)
     if not row:
         await c.answer(t.ALERT_DATA_STALE, show_alert=True)
         return
@@ -1326,25 +1296,23 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
     load_anime = db_funcs['load_anime_by_cb']
     
     # Get 1 item at offset idx
-    items, total = get_hist(user_id, page=idx, per_page=1)
-    
+    items, total = await get_hist(user_id, page=idx, per_page=1)
+
     if not items:
         if total == 0:
-             await c.answer(t.ALERT_HISTORY_EMPTY, show_alert=True)
+            await c.answer(t.ALERT_HISTORY_EMPTY, show_alert=True)
         else:
-             # Should not happen if idx is valid, but safeguard
-             await c.answer(t.ALERT_HISTORY_LOAD_ERROR, show_alert=True)
+            await c.answer(t.ALERT_HISTORY_LOAD_ERROR, show_alert=True)
         return
 
     item = items[0]
     cb_id = item['cb_id']
-    
-    if not cb_id:
-         # Fallback if we have record but no cb_map entry (rare)
-         await c.answer(t.ALERT_DATA_PARTIALLY_LOST, show_alert=True)
-         return
 
-    anime = load_anime(cb_id)
+    if not cb_id:
+        await c.answer(t.ALERT_DATA_PARTIALLY_LOST, show_alert=True)
+        return
+
+    anime = await load_anime(cb_id)
     if not anime:
         await c.answer(t.ALERT_DATA_LOST, show_alert=True)
         return
@@ -1374,7 +1342,7 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
             print(f"[HISTORY] Failed to send poster ({final_poster}): {e}")
             # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
             if has_ua_poster and is_telegram_poster_error(e):
-                remove_invalid_ua_poster(anime.slug)
+                await remove_invalid_ua_poster(anime.slug)
             # Fallback на Hikka постер якщо це був битий UA постер
             if has_ua_poster and anime.poster_url and anime.poster_url.strip().startswith("http"):
                 print(f"[FALLBACK] Пробую Hikka постер в історії")
@@ -1405,7 +1373,7 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
 
                 # Якщо це помилка Telegram - видаляємо UA постер з бази
                 if is_telegram_poster_error(e):
-                    remove_invalid_ua_poster(anime.slug)
+                    await remove_invalid_ua_poster(anime.slug)
                 poster_to_use = anime.poster_url
         
         try:
@@ -1414,7 +1382,7 @@ async def show_history_card(c: CallbackQuery, db_funcs: dict, idx: int):
             print(f"[HISTORY] Всі постери failed, показую текст: {e}")
             # Якщо це помилка Telegram і це UA постер - видаляємо його з бази
             if has_ua_poster and is_telegram_poster_error(e):
-                remove_invalid_ua_poster(anime.slug)
+                await remove_invalid_ua_poster(anime.slug)
             await c.message.answer(full_caption, reply_markup=kb)
     else:
         await c.message.answer(full_caption, reply_markup=kb)
@@ -1482,52 +1450,62 @@ async def cb_admin_force_sync(c: CallbackQuery, hikka_client: HikkaClient):
 
 # Запуск поллинга
 async def main() -> None:
-    init_db()
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    await init_db_pool()
+    bot = None
+    sync_task = None
+    try:
+        await init_db()
+        bot = Bot(
+            token=BOT_TOKEN,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        sync_task = asyncio.create_task(refresh_library_loop(bot))
 
-    # Start background tasks
-    _ = asyncio.create_task(refresh_library_loop(bot))
+        dp = Dispatcher()
+        hikka_auth = HikkaAuth()
+        dp.workflow_data.update(
+            hikka_client=hikka,
+            hikka_auth=hikka_auth,
+            start_text=START_TEXT,
+            kb_start_func=kb_start,
+            db_funcs={
+                "get_excluded_ids": get_excluded_ids,
+                "get_last_page": get_last_page,
+                "set_last_page": set_last_page,
+                "mark_seen": mark_seen,
+                "save_cb_map": save_cb_map,
+                "load_cb_map": load_cb_map,
+                "load_anime_by_cb": load_anime_by_cb,
+                "set_feedback": set_feedback,
+                "get_user_history": get_user_history,
+            },
+        )
 
-    dp = Dispatcher()
-
-    hikka_auth = HikkaAuth()
-    
-    dp.workflow_data.update(
-        hikka_client=hikka,
-        hikka_auth=hikka_auth,
-        start_text=START_TEXT,
-        kb_start_func=kb_start,
-        db_funcs={
-            "get_excluded_ids": get_excluded_ids,
-            "get_last_page": get_last_page,
-            "set_last_page": set_last_page,
-            "mark_seen": mark_seen,
-            "save_cb_map": save_cb_map,
-            "load_cb_map": load_cb_map,
-            "load_anime_by_cb": load_anime_by_cb,
-            "set_feedback": set_feedback,
-            "get_user_history": get_user_history,
-        }
-    )
-    
-    print("[DEBUG] Реєструємо роутери...")
-    dp.include_router(router)
-    dp.include_router(profile_router)
-    dp.include_router(admin_router)
-    dp.include_router(recent_router)
-    dp.include_router(genre_router)
-    dp.include_router(content_type_router)
-    dp.include_router(year_router)
-    dp.include_router(season_router)
-    dp.include_router(rating_router)
-    dp.include_router(filters_hub_router)
-    dp.include_router(inline_router)
-    dp.include_router(notif_router)
-    print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")
-    await dp.start_polling(bot)
+        print("[DEBUG] Реєструємо роутери...")
+        dp.include_router(router)
+        dp.include_router(profile_router)
+        dp.include_router(admin_router)
+        dp.include_router(recent_router)
+        dp.include_router(genre_router)
+        dp.include_router(content_type_router)
+        dp.include_router(year_router)
+        dp.include_router(season_router)
+        dp.include_router(rating_router)
+        dp.include_router(filters_hub_router)
+        dp.include_router(inline_router)
+        dp.include_router(notif_router)
+        print(f"[DEBUG] Роутерів зареєстровано: {len(dp.sub_routers)}")
+        await dp.start_polling(bot)
+    finally:
+        if sync_task is not None:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
+        if bot is not None:
+            await bot.session.close()
+        await close_db_pool()
 
 if __name__ == "__main__":
     asyncio.run(main())

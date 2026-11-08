@@ -140,20 +140,20 @@ def format_caption(a: Anime, max_length: int = MAX_CAPTION) -> str:
     year = f" ({a.year})" if a.year else ""
     score = f"⭐ <b>{a.score:.1f}</b>" if isinstance(a.score, float) else ""
     eps = f" • <b>{a.episodes_total}</b> {t.CAPTION_EPISODES}" if a.episodes_total else ""
-    ctype = f" • {get_name_by_slug(a.content_type)}" if a.content_type else ""
-    genres = f"\n\n{t.CAPTION_GENRES_LABEL} <i>{', '.join(a.genres)}</i>" if a.genres else ""
-    link_line = f"\n<a href=\"{a.hikka_url}\">{t.CAPTION_HIKKA_LINK}</a>" if a.hikka_url else ""
+    ctype = f" • {html.escape(get_name_by_slug(a.content_type))}" if a.content_type else ""
+    genres = f"\n\n{t.CAPTION_GENRES_LABEL} <i>{html.escape(', '.join(a.genres))}</i>" if a.genres else ""
+    hikka_url = html.escape(a.hikka_url, quote=True) if a.hikka_url else ""
+    link_line = f"\n<a href=\"{hikka_url}\">{t.CAPTION_HIKKA_LINK}</a>" if hikka_url else ""
 
     base = (
-        f"<b>{a.title}</b>{year}\n"
+        f"<b>{html.escape(a.title)}</b>{year}\n"
         f"{score}{eps}{ctype}{genres}"
     )
 
     if not isinstance(a.description, str) or not a.description.strip():
         return base + link_line
 
-    # Description already contains HTML tags (<b>, <i>) from clean_synopsis
-    synopsis_html = a.description.strip().replace("\n", " ")
+    synopsis_html = escape_preserve_html(a.description.strip().replace("\n", " "))
     # Calculate visible length (without HTML tags)
     synopsis_visible_len = visible_len(synopsis_html)
 

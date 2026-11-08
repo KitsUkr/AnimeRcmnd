@@ -31,11 +31,11 @@ _ADMIN_IDS = _load_admin_ids()
 def is_admin(user_id: int) -> bool:
     return user_id in _ADMIN_IDS
 
-def init_admin_db() -> None:
+async def init_admin_db() -> None:
     from database.connection import transaction
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS bot_users (
                 user_id BIGINT PRIMARY KEY,
@@ -47,25 +47,25 @@ def init_admin_db() -> None:
             """
         )
         # Telegram ID можуть перевищувати діапазон INTEGER
-        conn.execute(
+        await conn.execute(
             """
             ALTER TABLE bot_users ALTER COLUMN user_id TYPE BIGINT
             """
         )
         # Додаємо колонку ad_source якщо її ще немає
-        conn.execute(
+        await conn.execute(
             """
             ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS ad_source TEXT
             """
         )
         # Прапорець підписки на сповіщення про оновлення бібліотеки
-        conn.execute(
+        await conn.execute(
             """
             ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN DEFAULT TRUE
             """
         )
         # Таблиця рекламних кампаній
-        conn.execute(
+        await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ad_campaigns (
                 campaign_id TEXT PRIMARY KEY,
@@ -75,14 +75,14 @@ def init_admin_db() -> None:
             """
         )
 
-def touch_user(user_id: int, username: str | None = None, first_name: str | None = None, ad_source: str | None = None) -> None:
+async def touch_user(user_id: int, username: str | None = None, first_name: str | None = None, ad_source: str | None = None) -> None:
     from database.connection import transaction
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
         if ad_source:
             # Новий юзер з реклами — зберігаємо джерело (не перезаписуємо якщо вже є)
-            conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO bot_users(user_id, first_seen_at, last_seen_at, username, first_name, ad_source)
                 VALUES(%s, %s, %s, %s, %s, %s)
@@ -94,7 +94,7 @@ def touch_user(user_id: int, username: str | None = None, first_name: str | None
                 (user_id, now, now, username, first_name, ad_source),
             )
         else:
-            conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO bot_users(user_id, first_seen_at, last_seen_at, username, first_name)
                 VALUES(%s, %s, %s, %s, %s)
@@ -112,12 +112,12 @@ def touch_user(user_id: int, username: str | None = None, first_name: str | None
 # Ad Campaign CRUD
 # ==================
 
-def create_campaign(campaign_id: str, label: str) -> None:
+async def create_campaign(campaign_id: str, label: str) -> None:
     from database.connection import transaction
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO ad_campaigns(campaign_id, label, created_at)
             VALUES(%s, %s, %s)
@@ -127,27 +127,27 @@ def create_campaign(campaign_id: str, label: str) -> None:
             (campaign_id, label, now),
         )
 
-def delete_campaign(campaign_id: str) -> None:
+async def delete_campaign(campaign_id: str) -> None:
     from database.connection import transaction
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute("DELETE FROM ad_campaigns WHERE campaign_id = %s", (campaign_id,))
+        await conn.execute("DELETE FROM ad_campaigns WHERE campaign_id = %s", (campaign_id,))
 
-def get_campaigns() -> list[dict]:
+async def get_campaigns() -> list[dict]:
     conn = db()
-    rows = conn.execute(
+    rows = await conn.execute(
         "SELECT campaign_id, label, created_at FROM ad_campaigns ORDER BY created_at DESC"
     ).fetchall()
     return [{"campaign_id": r[0], "label": r[1], "created_at": r[2]} for r in rows]
 
-def get_ad_stats() -> list[dict]:
+async def get_ad_stats() -> list[dict]:
     """Статистика по кожній кампанії: всього, за 24г, за 7д."""
     now = int(time.time())
     day = 24 * 3600
     week = 7 * day
 
     conn = db()
-    rows = conn.execute(
+    rows = await conn.execute(
         """
         SELECT 
             c.campaign_id,
@@ -187,9 +187,9 @@ def get_ad_stats() -> list[dict]:
         for r in rows
     ]
 
-def get_total_ad_users() -> int:
+async def get_total_ad_users() -> int:
     conn = db()
-    row = conn.execute("SELECT COUNT(*) FROM bot_users WHERE ad_source IS NOT NULL").fetchone()
+    row = await conn.execute("SELECT COUNT(*) FROM bot_users WHERE ad_source IS NOT NULL").fetchone()
     return int(row[0]) if row else 0
 
 
@@ -197,39 +197,45 @@ def get_total_ad_users() -> int:
 # Admin Stats
 # ==================
 
-def _get_admin_stats() -> dict:
+async def _get_admin_stats() -> dict:
     now = int(time.time())
     day = 24 * 3600
     week = 7 * day
 
     conn = db()
-    total_users = conn.execute("SELECT COUNT(*) FROM bot_users").fetchone()[0] or 0
-    active_24h = conn.execute(
+    row = await conn.execute("SELECT COUNT(*) FROM bot_users").fetchone()
+    total_users = row[0] if row else 0
+    row = await conn.execute(
         "SELECT COUNT(*) FROM bot_users WHERE last_seen_at >= %s",
         (now - day,),
-    ).fetchone()[0] or 0
-    active_7d = conn.execute(
+    ).fetchone()
+    active_24h = row[0] if row else 0
+    row = await conn.execute(
         "SELECT COUNT(*) FROM bot_users WHERE last_seen_at >= %s",
         (now - week,),
-    ).fetchone()[0] or 0
+    ).fetchone()
+    active_7d = row[0] if row else 0
 
-    recs_total = conn.execute("SELECT COUNT(*) FROM user_seen").fetchone()[0] or 0
+    row = await conn.execute("SELECT COUNT(*) FROM user_seen").fetchone()
+    recs_total = row[0] if row else 0
 
-    likes_total = conn.execute(
+    row = await conn.execute(
         "SELECT COUNT(*) FROM user_feedback WHERE value=1"
-    ).fetchone()[0] or 0
+    ).fetchone()
+    likes_total = row[0] if row else 0
 
-    uniq_titles_seen = conn.execute(
+    row = await conn.execute(
         "SELECT COUNT(DISTINCT anime_id) FROM user_seen"
-    ).fetchone()[0] or 0
+    ).fetchone()
+    uniq_titles_seen = row[0] if row else 0
 
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT value FROM bot_meta WHERE key=%s",
         ("total_translated_titles",),
     ).fetchone()
     total_in_base = int(row[0]) if row and str(row[0]).isdigit() else None
 
-    ad_users_total = get_total_ad_users()
+    ad_users_total = await get_total_ad_users()
 
     return {
         "total_users": int(total_users),
@@ -287,7 +293,7 @@ async def admin_cmd(m: Message):
     if not is_admin(uid):
         return
 
-    s = _get_admin_stats()
+    s = await _get_admin_stats()
     text = _format_admin_text(s)
     await m.answer(text, reply_markup=kb_admin_panel())
 
@@ -301,7 +307,7 @@ async def cb_admin_refresh_stats(c: CallbackQuery):
     
     await c.answer(t.ALERT_REFRESHING_STATS)
     
-    s = _get_admin_stats()
+    s = await _get_admin_stats()
     text = _format_admin_text(s)
     
     await safe_edit_text(c.message, text, reply_markup=kb_admin_panel())
@@ -321,7 +327,7 @@ async def cb_ad_campaigns_list(c: CallbackQuery):
         return
 
     await c.answer()
-    stats = get_ad_stats()
+    stats = await get_ad_stats()
 
     if not stats:
         text = t.AD_CAMPAIGNS_EMPTY
@@ -372,7 +378,7 @@ async def cb_ad_campaign_detail(c: CallbackQuery, callback_data: AdCampaignCB):
     campaign_id = callback_data.campaign_id
 
     # Знаходимо кампанію в статистиці
-    stats = get_ad_stats()
+    stats = await get_ad_stats()
     campaign = None
     for s in stats:
         if s["campaign_id"] == campaign_id:
@@ -439,12 +445,12 @@ async def cb_ad_campaign_delete(c: CallbackQuery, callback_data: AdCampaignCB):
         return
 
     campaign_id = callback_data.campaign_id
-    delete_campaign(campaign_id)
+    await delete_campaign(campaign_id)
 
     await c.answer(t.AD_CAMPAIGN_DELETED.format(campaign_id=campaign_id), show_alert=True)
 
     # Повертаємось до списку — повторюємо логіку списку
-    stats = get_ad_stats()
+    stats = await get_ad_stats()
 
     if not stats:
         text = t.AD_CAMPAIGNS_EMPTY
@@ -529,7 +535,7 @@ async def fsm_campaign_label(m: Message, state: FSMContext):
     data = await state.get_data()
     campaign_id = data["campaign_id"]
 
-    create_campaign(campaign_id, label)
+    await create_campaign(campaign_id, label)
     await state.clear()
 
     # Отримуємо deep link

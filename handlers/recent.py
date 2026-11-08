@@ -108,10 +108,10 @@ def _kb_with_nav(cb_id: str, recent_id: str, index: int, total: int) -> InlineKe
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _fetch_recent_slugs() -> list[str]:
+async def _fetch_recent_slugs() -> list[str]:
     """SELECT slugs новеньких аніме (inserted_at у поточному циклі)."""
     threshold = int(time.time()) - (LIBRARY_SYNC_INTERVAL - 86400)
-    rows = db().execute(SELECT_RECENT_ANIME_SLUGS, (threshold,)).fetchall()
+    rows = await db().execute(SELECT_RECENT_ANIME_SLUGS, (threshold,)).fetchall()
     return [row[0] for row in rows]
 
 
@@ -125,7 +125,7 @@ async def open_recent(
     """
     is_callback = isinstance(target, CallbackQuery)
 
-    slugs = _fetch_recent_slugs()
+    slugs = await _fetch_recent_slugs()
     if not slugs:
         if is_callback:
             await target.answer(t.RECENT_EMPTY, show_alert=True)
@@ -179,7 +179,7 @@ async def cb_recent_show(
     slugs = _get_recent_slugs(callback_data.recent_id)
     if slugs is None:
         # Кеш втрачено (рестарт бота) — пере-опитуємо БД.
-        slugs = _fetch_recent_slugs()
+        slugs = await _fetch_recent_slugs()
         if not slugs:
             await callback.answer(t.ALERT_RECENT_GONE, show_alert=True)
             return

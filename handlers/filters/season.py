@@ -30,9 +30,9 @@ SEASON_MAP = {
 }
 
 # ==================== БД ====================
-def get_selected_seasons(user_id: int) -> List[str]:
+async def get_selected_seasons(user_id: int) -> List[str]:
     conn = db()
-    row = conn.execute(SELECT_USER_STATE_SEASONS, (user_id,)).fetchone()
+    row = await conn.execute(SELECT_USER_STATE_SEASONS, (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -40,21 +40,21 @@ def get_selected_seasons(user_id: int) -> List[str]:
     except Exception:
         return []
 
-def set_selected_seasons(user_id: int, seasons: List[str]) -> None:
+async def set_selected_seasons(user_id: int, seasons: List[str]) -> None:
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(INSERT_USER_STATE_SEASONS, (user_id, json.dumps(seasons), now))
+        await conn.execute(INSERT_USER_STATE_SEASONS, (user_id, json.dumps(seasons), now))
     # Reset alert flag
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
-def clear_season_filter(user_id: int) -> None:
+async def clear_season_filter(user_id: int) -> None:
     """Очистити фільтр сезонів"""
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             UPDATE user_state 
             SET selected_seasons_json = NULL, excluded_seasons_json = NULL, updated_at = %s
@@ -63,7 +63,7 @@ def clear_season_filter(user_id: int) -> None:
             (now, user_id),
         )
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 # ==================== UI ====================
 def kb_season_filter(included: List[str]) -> InlineKeyboardMarkup:
@@ -111,11 +111,11 @@ async def cb_open_season_filter(c: CallbackQuery):
     
     # Exit genre menu state if we're coming from there
     from UaAnimeRcmd import exit_genre_menu
-    exit_genre_menu(user_id)
+    await exit_genre_menu(user_id)
     
     await c.answer()
     
-    included = get_selected_seasons(user_id)
+    included = await get_selected_seasons(user_id)
     
     text = get_season_menu_text()
     kb = kb_season_filter(included)
@@ -136,14 +136,14 @@ async def cb_toggle_season(c: CallbackQuery, callback_data: SeasonCB):
         await c.answer()
         return
         
-    included = get_selected_seasons(user_id)
+    included = await get_selected_seasons(user_id)
     
     # Тогл включення
     if slug in included:
         included.remove(slug)
     else:
         included.append(slug)
-    set_selected_seasons(user_id, included)
+    await set_selected_seasons(user_id, included)
         
     kb = kb_season_filter(included)
     await safe_edit_reply_markup(c.message, reply_markup=kb)
@@ -154,7 +154,7 @@ async def cb_season_clear(c: CallbackQuery):
     """Очистити всі фільтри сезонів"""
     user_id = c.from_user.id
     
-    clear_season_filter(user_id)
+    await clear_season_filter(user_id)
     
     kb = kb_season_filter([])
     await safe_edit_reply_markup(c.message, reply_markup=kb)

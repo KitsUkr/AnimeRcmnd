@@ -40,10 +40,10 @@ def get_name_by_slug(slug: str) -> str:
     return CONTENT_TYPE_MAP.get(slug, slug)
 
 # ==================== БД ====================
-def get_selected_content_types(user_id: int) -> List[str]:
+async def get_selected_content_types(user_id: int) -> List[str]:
     """Отримати вибрані типи контенту"""
     conn = db()
-    row = conn.execute("SELECT selected_content_types_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT selected_content_types_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -52,13 +52,13 @@ def get_selected_content_types(user_id: int) -> List[str]:
         print(f"Error loading selected content types: {e}")
         return []
 
-def set_selected_content_types(user_id: int, types: List[str]) -> None:
+async def set_selected_content_types(user_id: int, types: List[str]) -> None:
     """Зберегти вибрані типи контенту"""
     json_str = json.dumps(sorted(set(types)), ensure_ascii=False)
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, selected_content_types_json, updated_at)
             VALUES (%s, %s, %s)
@@ -69,10 +69,10 @@ def set_selected_content_types(user_id: int, types: List[str]) -> None:
             (user_id, json_str, now),
         )
 
-def get_excluded_content_types(user_id: int) -> List[str]:
+async def get_excluded_content_types(user_id: int) -> List[str]:
     """Отримати виключені типи контенту"""
     conn = db()
-    row = conn.execute("SELECT excluded_content_types_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT excluded_content_types_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -81,13 +81,13 @@ def get_excluded_content_types(user_id: int) -> List[str]:
         print(f"Error loading excluded content types: {e}")
         return []
 
-def set_excluded_content_types(user_id: int, types: List[str]) -> None:
+async def set_excluded_content_types(user_id: int, types: List[str]) -> None:
     """Зберегти виключені типи контенту"""
     json_str = json.dumps(sorted(set(types)), ensure_ascii=False)
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, excluded_content_types_json, updated_at)
             VALUES (%s, %s, %s)
@@ -98,45 +98,34 @@ def set_excluded_content_types(user_id: int, types: List[str]) -> None:
             (user_id, json_str, now),
         )
 
-def toggle_content_type_slug(user_id: int, type_slug: str) -> None:
+async def toggle_content_type_slug(user_id: int, type_slug: str) -> None:
     """Tri-state toggle: Нейтрально -> Включено -> Виключено -> Нейтрально"""
-    included = get_selected_content_types(user_id)
-    excluded = get_excluded_content_types(user_id)
-    
+    included = await get_selected_content_types(user_id)
+    excluded = await get_excluded_content_types(user_id)
+
     if type_slug in included:
-        # Включено -> Виключено
         included.remove(type_slug)
         if type_slug not in excluded:
             excluded.append(type_slug)
-        
-        set_selected_content_types(user_id, included)
-        set_excluded_content_types(user_id, excluded)
-        
+        await set_selected_content_types(user_id, included)
+        await set_excluded_content_types(user_id, excluded)
     elif type_slug in excluded:
-        # Виключено -> Нейтрально
         excluded.remove(type_slug)
-        set_excluded_content_types(user_id, excluded)
-        
+        await set_excluded_content_types(user_id, excluded)
     else:
-        # Нейтрально -> Включено
-        if type_slug in excluded:
-            excluded.remove(type_slug)
-            set_excluded_content_types(user_id, excluded)
-            
         included.append(type_slug)
-        set_selected_content_types(user_id, included)
-    
-    # Reset alert flag so user sees updated filter info
+        await set_selected_content_types(user_id, included)
+
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
-def clear_selected_content_types(user_id: int) -> None:
+async def clear_selected_content_types(user_id: int) -> None:
     """Очистити вибрані типи"""
-    set_selected_content_types(user_id, [])
+    await set_selected_content_types(user_id, [])
 
-def clear_excluded_content_types(user_id: int) -> None:
+async def clear_excluded_content_types(user_id: int) -> None:
     """Очистити виключені типи"""
-    set_excluded_content_types(user_id, [])
+    await set_excluded_content_types(user_id, [])
 
 # ==================== UI ====================
 def kb_content_types(included: List[str], excluded: List[str]) -> InlineKeyboardMarkup:
@@ -182,8 +171,8 @@ async def cb_open_content_types(c: CallbackQuery):
     """Відкрити меню вибору типів контенту"""
     await c.answer()
     
-    inc = get_selected_content_types(c.from_user.id)
-    exc = get_excluded_content_types(c.from_user.id)
+    inc = await get_selected_content_types(c.from_user.id)
+    exc = await get_excluded_content_types(c.from_user.id)
     
     text = t.CONTENT_TYPE_MENU_TEXT
     
@@ -204,22 +193,21 @@ async def cb_toggle_content_type(c: CallbackQuery, callback_data: ContentTypeCB)
         await c.answer(t.ALERT_CONTENT_TYPE_MISSING)
         return
     
-    toggle_content_type_slug(c.from_user.id, slug)
+    await toggle_content_type_slug(c.from_user.id, slug)
     
-    inc = get_selected_content_types(c.from_user.id)
-    exc = get_excluded_content_types(c.from_user.id)
+    inc = await get_selected_content_types(c.from_user.id)
+    exc = await get_excluded_content_types(c.from_user.id)
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_content_types(included=inc, excluded=exc))
 
 @router.callback_query(ContentTypeCB.filter(F.action == "clear"))
 async def cb_content_type_clear(c: CallbackQuery):
     """Очистити всі фільтри по типах"""
-    clear_selected_content_types(c.from_user.id)
-    clear_excluded_content_types(c.from_user.id)
-    
-    # Reset alert flag so user sees updated filter info
+    await clear_selected_content_types(c.from_user.id)
+    await clear_excluded_content_types(c.from_user.id)
+
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(c.from_user.id)
+    await reset_filter_alert(c.from_user.id)
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_content_types(included=[], excluded=[]))
     

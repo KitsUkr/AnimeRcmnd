@@ -58,39 +58,39 @@ _CREATE_TABLE = """
 # DB init
 # =========================
 
-def init_hikka_auth_db():
+async def init_hikka_auth_db():
     """Створити таблицю hikka_tokens якщо не існує."""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(_CREATE_TABLE)
+        await conn.execute(_CREATE_TABLE)
 
 # =========================
 # DB helpers
 # =========================
 
-def save_hikka_token(user_id: int, token: str, username: Optional[str] = None):
+async def save_hikka_token(user_id: int, token: str, username: Optional[str] = None):
     """Зберегти або оновити Hikka auth token для юзера."""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(_INSERT_HIKKA_TOKEN, (user_id, token, username))
+        await conn.execute(_INSERT_HIKKA_TOKEN, (user_id, token, username))
 
-def get_hikka_token(user_id: int) -> Optional[Tuple[str, Optional[str]]]:
+async def get_hikka_token(user_id: int) -> Optional[Tuple[str, Optional[str]]]:
     """Отримати (token, username) для юзера, або None."""
     conn = db()
-    row = conn.execute(_SELECT_HIKKA_TOKEN, (user_id,)).fetchone()
+    row = await conn.execute(_SELECT_HIKKA_TOKEN, (user_id,)).fetchone()
     if row:
         return (row[0], row[1])
     return None
 
-def delete_hikka_token(user_id: int):
+async def delete_hikka_token(user_id: int):
     """Видалити Hikka token (logout)."""
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(_DELETE_HIKKA_TOKEN, (user_id,))
+        await conn.execute(_DELETE_HIKKA_TOKEN, (user_id,))
 
-def is_hikka_logged_in(user_id: int) -> bool:
+async def is_hikka_logged_in(user_id: int) -> bool:
     """Перевірити, чи юзер залогінений в Hikka."""
-    return get_hikka_token(user_id) is not None
+    return await get_hikka_token(user_id) is not None
 
 # =========================
 # OAuth Flow
@@ -153,7 +153,9 @@ class HikkaAuth:
 
         async with self._get_session() as session:
             try:
-                async with session.post(url, json=payload) as resp:
+                async with session.post(
+                    url, json=payload, timeout=aiohttp.ClientTimeout(total=20)
+                ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return data.get("secret")
@@ -179,7 +181,9 @@ class HikkaAuth:
 
         async with self._get_session() as session:
             try:
-                async with session.get(url, headers=headers) as resp:
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)
+                ) as resp:
                     if resp.status == 200:
                         return await resp.json()
                     else:
@@ -207,7 +211,7 @@ class HikkaAuth:
         Returns:
             (success: bool, message: str)
         """
-        token_data = get_hikka_token(user_id)
+        token_data = await get_hikka_token(user_id)
         if not token_data:
             return (False, "not_logged_in")
 
@@ -222,12 +226,15 @@ class HikkaAuth:
 
         async with self._get_session() as session:
             try:
-                async with session.put(url, json=payload, headers=headers) as resp:
+                async with session.put(
+                    url, json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
                     if resp.status == 200:
                         return (True, "ok")
                     elif resp.status == 401:
                         # Token expired або revoked
-                        delete_hikka_token(user_id)
+                        await delete_hikka_token(user_id)
                         return (False, "token_expired")
                     elif resp.status == 400:
                         text = await resp.text()
@@ -266,7 +273,7 @@ class HikkaAuth:
             username = user_info.get("username")
 
         # 3. Зберегти token
-        save_hikka_token(user_id, token, username)
+        await save_hikka_token(user_id, token, username)
 
         return (True, username or t.HIKKA_UNKNOWN_USER)
 

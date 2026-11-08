@@ -6,12 +6,13 @@ import random
 import time
 import re
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote_plus, quote
 from database.connection import db, transaction
-from database.queries import INSERT_LIBRARY_ITEM, INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES
+from database.queries import INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, COUNT_LIBRARY, UPDATE_LIBRARY_GENRES
 from utils.ui_shared import Anime
-from handlers.filters.genre import get_name_by_slug, get_slug_by_name
+from handlers.filters.genre import get_name_by_slug
 
 class AllAnimeSeenError(Exception):
     """Raised when user has seen all anime in the library (no filters)."""
@@ -29,6 +30,13 @@ class FilteredAnimeExhaustedError(Exception):
         self.seasons = seasons or []
         self.score_min = score_min
         super().__init__("All filtered anime have been seen")
+
+@dataclass
+class AnimeDetails:
+    description: Optional[str]
+    genres: List[str]
+    watch_links: List[Dict[str, str]]
+
 
 # Helper Constants
 META_TOTAL_TRANSLATED = "total_translated_titles"
@@ -135,9 +143,9 @@ async def url_exists(session: aiohttp.ClientSession, url: str) -> bool:
     except Exception:
         return False
 
-def meta_get(key: str) -> tuple[str, int] | None:
+async def meta_get(key: str) -> tuple[str, int] | None:
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         "SELECT value, updated_at FROM bot_meta WHERE key=%s",
         (key,),
     ).fetchone()
@@ -145,11 +153,11 @@ def meta_get(key: str) -> tuple[str, int] | None:
         return None
     return str(row[0]), int(row[1])
 
-def meta_set(key: str, value: str) -> None:
+async def meta_set(key: str, value: str) -> None:
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO bot_meta(key, value, updated_at)
             VALUES(%s, %s, %s)
@@ -160,11 +168,11 @@ def meta_set(key: str, value: str) -> None:
             (key, value, now),
         )
 
-def get_cached_details(slug: str) -> Optional[Tuple[Optional[str], List[Dict[str, str]]]]:
+async def get_cached_details(slug: str) -> Optional[Tuple[Optional[str], List[Dict[str, str]]]]:
     """Отримати закешовані деталі (опис, лінки). Жанри тепер в anime_library."""
     now = int(time.time())
     conn = db()
-    row = conn.execute(
+    row = await conn.execute(
         """
         SELECT description, watch_links_json, expires_at
         FROM anime_details_cache
@@ -194,13 +202,13 @@ def get_cached_details(slug: str) -> Optional[Tuple[Optional[str], List[Dict[str
     clean_desc = clean_synopsis(str(description)) if description else None
     return clean_desc, wl
 
-def set_cached_details(slug: str, description: Optional[str], watch_links: List[Dict[str, str]]) -> None:
+async def set_cached_details(slug: str, description: Optional[str], watch_links: List[Dict[str, str]]) -> None:
     """Зберегти деталі в кеш (опис, лінки). Жанри тепер в anime_library."""
     now = int(time.time())
     expires_at = now + DETAILS_TTL_SECONDS
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO anime_details_cache(
                 slug, description, watch_links_json, updated_at, expires_at
@@ -226,23 +234,17 @@ async def get_or_refresh_watch_links(slug: str, hikka_client: "HikkaClient") -> 
     import aiohttp
     
     # 1. Спробувати з кешу (TTL перевіряється всередині)
-    cached = get_cached_details(slug)
+    cached = await get_cached_details(slug)
     if cached:
         _, watch_links = cached
         if watch_links:
             return watch_links
-    
-    # 2. TTL вичерпано або немає даних — йдемо на API
+
     try:
         async with aiohttp.ClientSession() as session:
-            await hikka_client.load_details(session, slug)
-            watch_links = hikka_client.watch_links or []
-            description = hikka_client.description
-            
-            # Оновлюємо кеш з новим TTL
-            set_cached_details(slug, description, watch_links)
-            
-            return watch_links
+            details = await hikka_client.load_details(session, slug)
+        await set_cached_details(slug, details.description, details.watch_links)
+        return details.watch_links
     except Exception as e:
         print(f"[WATCH_LINKS] Помилка оновлення для {slug}: {e}")
 
@@ -250,7 +252,7 @@ async def get_or_refresh_watch_links(slug: str, hikka_client: "HikkaClient") -> 
         
         # 3. Fallback: повернути старі дані з кешу навіть якщо TTL вичерпано
         conn = db()
-        row = conn.execute(
+        row = await conn.execute(
             "SELECT watch_links_json FROM anime_details_cache WHERE slug=%s",
             (slug,),
         ).fetchone()
@@ -274,11 +276,7 @@ class HikkaClient:
         self._resolved_url: Optional[str] = None
         self._total_pages: Optional[int] = None
         self.ua_posters: Optional[Dict[str, str]] = None  # slug -> ua_poster_url
-
-        # Temporary fields for load_details
-        self.description: Optional[str] = None
-        self.genres: List[str] = []
-        self.watch_links: List[Dict[str, str]] = []
+        self._sync_lock = asyncio.Lock()
 
     def _extract_total_items(self, payload: dict) -> Optional[int]:
         pag = payload.get("pagination")
@@ -477,30 +475,29 @@ class HikkaClient:
 
         raise RuntimeError(f"Не вдалося знайти ендпоінт для деталей аніме {slug}")
 
-    async def load_details(self, session: aiohttp.ClientSession, slug: str) -> None:
+    async def load_details(self, session: aiohttp.ClientSession, slug: str) -> AnimeDetails:
         try:
             data = await self.fetch_anime_details(session, slug)
-
             desc = data.get("synopsis_ua") or data.get("description_ua")
-            self.description = clean_synopsis(str(desc)) if desc else None
-
-            self.genres = _parse_genres_raw(data.get("genres"))[:8]
-
-            self.watch_links = []
+            description = clean_synopsis(str(desc)) if desc else None
+            genres = _parse_genres_raw(data.get("genres"))[:8]
+            watch_links: List[Dict[str, str]] = []
             external = data.get("external") or []
             if isinstance(external, list):
                 for ext in external:
                     if isinstance(ext, dict) and ext.get("type") == "watch" and ext.get("url"):
-                        self.watch_links.append({
+                        watch_links.append({
                             "text": str(ext.get("text") or ext.get("url") or "Дивитись"),
-                            "url": str(ext["url"])
+                            "url": str(ext["url"]),
                         })
 
-            print(f"[DETAILS] {slug}: жанрів={len(self.genres)}, опис={'є' if self.description else 'немає'}, "
-                  f"посилань={len(self.watch_links)}")
-
+            print(
+                f"[DETAILS] {slug}: жанрів={len(genres)}, "
+                f"опис={'є' if description else 'немає'}, посилань={len(watch_links)}"
+            )
+            return AnimeDetails(description, genres, watch_links)
         except Exception as e:
-            raise RuntimeError(f"Помилка завантаження деталей для {slug}: {e}")
+            raise RuntimeError(f"Помилка завантаження деталей для {slug}: {e}") from e
 
     async def load_ua_posters(self, session: aiohttp.ClientSession) -> None:
         if self.ua_posters is not None:
@@ -627,6 +624,11 @@ class HikkaClient:
             return None
 
     async def sync_library(self, full: bool = False) -> List[str]:
+        async with self._sync_lock:
+            self._total_pages = None
+            return await self._sync_library(full=full)
+
+    async def _sync_library(self, full: bool = False) -> List[str]:
         """
         Фоновий процес: скачує всі сторінки аніме і зберігає в локальну БД.
         full=True - ігнорує дати та перезаписує.
@@ -637,7 +639,7 @@ class HikkaClient:
         # Перевірка часу останньої синхронізації
         if not full:
             # 1. Main Sync Check (13 days)
-            cached_lib = meta_get(META_LAST_LIBRARY_SYNC)
+            cached_lib = await meta_get(META_LAST_LIBRARY_SYNC)
             if cached_lib:
                 val, updated_at = cached_lib
                 if int(time.time()) - updated_at < LIBRARY_SYNC_INTERVAL:
@@ -650,8 +652,8 @@ class HikkaClient:
                     return []
 
             # 2. Poster Sync Check (14 days)
-            cached_posters = meta_get(META_LAST_POSTERS_SYNC)
-            need_poster_sync = True # Default for first run
+            cached_posters = await meta_get(META_LAST_POSTERS_SYNC)
+            need_poster_sync = True
             if cached_posters:
                 val, updated_at = cached_posters
                 if int(time.time()) - updated_at < POSTER_SYNC_INTERVAL:
@@ -662,11 +664,7 @@ class HikkaClient:
         poster_status = "ПОВНА (з перевіркою постерів)" if need_poster_sync else "ШВИДКА (без перевірки постерів)"
         print(f"[LIBRARY] 🚀 Починаю синхронізацію бібліотеки ({poster_status})...")
 
-
         start_ts = time.time()
-        
-        # Select query based on poster sync need
-        insert_query = INSERT_LIBRARY_ITEM if need_poster_sync else INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE
 
         async with aiohttp.ClientSession() as session:
             # === ШАГ 0: СИНХРОНИЗАЦИЯ ЖАНРОВ (ОПЦИОНАЛЬНАЯ) ===
@@ -675,7 +673,7 @@ class HikkaClient:
                 genres_data = await self._fetch_genres_from_api(session)
                 if genres_data:
                     genres_json = json.dumps(genres_data, ensure_ascii=False)
-                    meta_set(META_AVAILABLE_GENRES, genres_json)
+                    await meta_set(META_AVAILABLE_GENRES, genres_json)
                     
                     # Синхронізуємо GENRE_MAP у пам'яті
                     from handlers.filters.genre import sync_genre_mapping
@@ -711,6 +709,7 @@ class HikkaClient:
             skipped = 0
             updated = 0
             inserted = 0
+            failed_pages = 0
             inserted_slugs: list[str] = []
             now = int(time.time())
             
@@ -727,7 +726,7 @@ class HikkaClient:
                     
                     # Завантажуємо існуючі записи з бази одним запитом
                     placeholders = ','.join('%s' for _ in slugs)
-                    existing_rows = conn.execute(
+                    existing_rows = await conn.execute(
                         f"SELECT slug, title, genres_json, score, year, episodes_total, poster_url, season FROM anime_library WHERE slug IN ({placeholders})",
                         slugs
                     ).fetchall()
@@ -750,7 +749,6 @@ class HikkaClient:
                                 anime.poster_url, anime.hikka_url, now, None, anime.content_type, anime.season,
                                 now,  # inserted_at
                             ))
-                            inserted_slugs.append(anime.slug)
                         else:
                             # Порівнюємо з існуючим записом
                             db_slug, db_title, db_genres, db_score, db_year, db_episodes, db_poster, db_season = db_record
@@ -809,34 +807,32 @@ class HikkaClient:
                                 skipped += 1
                     
                     # Виконуємо batch операції
-                    with transaction():
+                    async with transaction():
                         if to_insert:
-                            conn.executemany(INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, to_insert)
+                            await conn.executemany(INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE, to_insert)
                             inserted += len(to_insert)
-                        
+                            inserted_slugs.extend(row[0] for row in to_insert)
+
                         if to_update:
-                            conn.executemany(
-                                """UPDATE anime_library SET 
-                                   title=%s, genres_json=%s, score=%s, year=%s, 
+                            await conn.executemany(
+                                """UPDATE anime_library SET
+                                   title=%s, genres_json=%s, score=%s, year=%s,
                                    episodes_total=%s, poster_url=%s, updated_at=%s, content_type=%s, season=%s
                                    WHERE slug=%s""",
                                 to_update
                             )
                             updated += len(to_update)
-                    
+
                     total_items += len(items)
-                    
+
                     if page % 10 == 0:
                         print(f"[LIBRARY] Сторінок: {page}/{total_pages} | Нових: {inserted} | Оновлено: {updated} | Пропущено: {skipped}")
 
+                    await asyncio.sleep(0.3)
 
-                    
-                    await asyncio.sleep(0.3)  # Швидше бо менше записів
-                    
                 except Exception as e:
+                    failed_pages += 1
                     print(f"[LIBRARY] ⚠️ Помилка на сторінці {page}: {e}")
-
-
                     await asyncio.sleep(2)
             
             print(f"[LIBRARY] ✅ ЕТАП 1 завершено: нових {inserted}, оновлено {updated}, пропущено {skipped}")
@@ -878,7 +874,7 @@ class HikkaClient:
                 
                 if ua_posters:
                     # Завантажуємо існуючі постери з бази одним запитом
-                    existing_posters = conn.execute(
+                    existing_posters = await conn.execute(
                         "SELECT slug FROM anime_library WHERE ua_poster_url IS NOT NULL AND ua_poster_url != ''"
                     ).fetchall()
                     existing_slugs = {row[0] for row in existing_posters}
@@ -901,8 +897,8 @@ class HikkaClient:
                         
                         if is_valid:
                             # Оновлюємо аніме в базі
-                            with transaction():
-                                conn.execute(
+                            async with transaction():
+                                await conn.execute(
                                     "UPDATE anime_library SET ua_poster_url = %s WHERE slug = %s",
                                     (ua_url, slug)
                                 )
@@ -936,18 +932,20 @@ class HikkaClient:
             duration = time.time() - start_ts
             
             # Отримуємо реальну кількість записів у базі після синхронізації
-            count_row = conn.execute(COUNT_LIBRARY).fetchone()
+            count_row = await conn.execute(COUNT_LIBRARY).fetchone()
             actual_count = count_row[0] if count_row else 0
             
             print(f"[LIBRARY] ✅ Синхронізацію завершено за {duration:.1f}с. Всього аніме в базі: {actual_count}")
 
 
-            meta_set(META_LAST_LIBRARY_SYNC, "done")
-            if need_poster_sync:
-                meta_set(META_LAST_POSTERS_SYNC, "done")
+            if failed_pages:
+                print(f"[LIBRARY] ⚠️ Пропущено сторінок через помилки: {failed_pages}; час синхронізації не оновлено")
+            else:
+                await meta_set(META_LAST_LIBRARY_SYNC, "done")
+                if need_poster_sync:
+                    await meta_set(META_LAST_POSTERS_SYNC, "done")
 
-            # Update total translated count - використовуємо реальну кількість з бази
-            meta_set(META_TOTAL_TRANSLATED, str(actual_count))
+            await meta_set(META_TOTAL_TRANSLATED, str(actual_count))
 
             if inserted_slugs:
                 print(f"[LIBRARY] 🌱 Додано {len(inserted_slugs)} нових тайтлів (доступні через /new)")
@@ -970,16 +968,25 @@ class HikkaClient:
         )
 
     def _build_filter_query(
-        self, *, exclude_ids=None, genre_names=None, excluded_names=None,
+        self, *, user_id=None, exclude_ids=None, genre_names=None, excluded_names=None,
         content_types=None, excluded_content_types=None,
-        year_from=None, year_to=None, score_min=None, seasons=None, limit=50,
+        year_from=None, year_to=None, score_min=None, seasons=None, limit=1,
     ):
         """Будує SQL-запит з фільтрами. Повертає (query, params)."""
         conditions = ["score IS NOT NULL AND score > 0"]
         params = []
 
-        # Виключення вже переглянутих
-        if exclude_ids:
+        if user_id is not None:
+            conditions.append(
+                "NOT EXISTS (SELECT 1 FROM user_seen us "
+                "WHERE us.user_id = %s AND us.anime_id = anime_library.slug)"
+            )
+            conditions.append(
+                "NOT EXISTS (SELECT 1 FROM user_feedback uf "
+                "WHERE uf.user_id = %s AND uf.anime_id = anime_library.slug AND uf.value = 1)"
+            )
+            params.extend((user_id, user_id))
+        elif exclude_ids:
             placeholders = ','.join('%s' for _ in exclude_ids)
             conditions.append(f"slug NOT IN ({placeholders})")
             params.extend(exclude_ids)
@@ -1037,7 +1044,8 @@ class HikkaClient:
 
     async def random_anime(
         self,
-        exclude_ids: List[str],
+        user_id: int,
+        exclude_ids: Optional[List[str]] = None,
         last_page: Optional[int] = None,
         genres: Optional[List[str]] = None,
         genre_names: Optional[List[str]] = None,
@@ -1051,162 +1059,128 @@ class HikkaClient:
         tries: int = 12,
     ) -> Tuple[Anime, int]:
         conn = db()
-        
-        # 1. Перевірка наявності бібліотеки
-        count_row = conn.execute(COUNT_LIBRARY).fetchone()
+
+        async def http_fallback() -> Tuple[Anime, int]:
+            nonlocal exclude_ids
+            if exclude_ids is None:
+                rows = await conn.execute(
+                    """
+                    SELECT anime_id FROM user_seen WHERE user_id=%s
+                    UNION
+                    SELECT anime_id FROM user_feedback WHERE user_id=%s AND value=1
+                    """,
+                    (user_id, user_id),
+                ).fetchall()
+                exclude_ids = [row[0] for row in rows]
+            return await self._random_anime_http(
+                exclude_ids, last_page, genres, excluded_genres, content_types,
+                excluded_content_types, year_from, year_to, seasons, score_min, tries,
+            )
+
+        count_row = await conn.execute(COUNT_LIBRARY).fetchone()
         count = count_row[0] if count_row else 0
-        
         if count < 100:
-            print(f"[RANDOM] ⚠️ Бібліотека порожня ({count} записів), використовую HTTP-метод")
+            print(f"[RANDOM] Бібліотека мала ({count} записів), використовую HTTP-метод")
+            return await http_fallback()
 
-            return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
-        
-        # 2. Якщо є фільтри по жанрах - перевіряємо, чи достатньо жанрів у базі
         if genres or excluded_genres:
-            genres_count = conn.execute(
+            genres_row = await conn.execute(
                 "SELECT COUNT(*) FROM anime_library WHERE genres_json != '[]' AND genres_json IS NOT NULL"
-            ).fetchone()[0]
-            
+            ).fetchone()
+            genres_count = genres_row[0] if genres_row else 0
             if genres_count < 100:
-                print(f"[RANDOM] 🔄 Жанрів у базі мало ({genres_count}), використовую HTTP API")
+                print(f"[RANDOM] Жанрів у базі мало ({genres_count}), використовую HTTP API")
+                return await http_fallback()
 
-                return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
-            else:
-                print(f"[RANDOM] ⚡ Жанрів у базі достатньо ({genres_count}), пробую SQL пошук")
-
-        
-        # 3. Конвертація slug → name для SQL
-        excluded_names = []
-        if excluded_genres:
-            excluded_names = [get_name_by_slug(s) for s in excluded_genres]
-        
-        # 4. SQL Пошук (вся фільтрація в SQL!)
-        print(f"[RANDOM] ⚡ SQL-пошук в бібліотеці (Total: {count})")
-
+        excluded_names = [get_name_by_slug(s) for s in (excluded_genres or [])]
         query, params = self._build_filter_query(
-            exclude_ids=exclude_ids,
-            genre_names=genre_names or [],
-            excluded_names=excluded_names,
-            content_types=content_types,
-            excluded_content_types=excluded_content_types,
-            year_from=year_from, year_to=year_to,
-            score_min=score_min, seasons=seasons, limit=50,
+            user_id=user_id,
+            genre_names=genre_names or [], excluded_names=excluded_names,
+            content_types=content_types, excluded_content_types=excluded_content_types,
+            year_from=year_from, year_to=year_to, score_min=score_min, seasons=seasons,
         )
-        rows = conn.execute(query, params).fetchall()
-        candidates = [self._row_to_anime(r) for r in rows]
-            
+        rows = await conn.execute(query, params).fetchall()
+        candidates = [self._row_to_anime(row) for row in rows]
+
+        if not candidates and genre_names and len(genre_names) > 1:
+            shuffled_names = list(genre_names)
+            random.shuffle(shuffled_names)
+            for single_genre in shuffled_names:
+                fb_query, fb_params = self._build_filter_query(
+                    user_id=user_id,
+                    genre_names=[single_genre], excluded_names=excluded_names,
+                    content_types=content_types, excluded_content_types=excluded_content_types,
+                    year_from=year_from, year_to=year_to, score_min=score_min, seasons=seasons,
+                )
+                fb_rows = await conn.execute(fb_query, fb_params).fetchall()
+                candidates = [self._row_to_anime(row) for row in fb_rows]
+                if candidates:
+                    break
+
         if not candidates:
-            # 🔄 SMART FALLBACK: Якщо точний пошук по всіх жанрах не дав результату
-            if genre_names and len(genre_names) > 1:
-                print(f"[RANDOM] ⚠️ SQL не знайшов для всіх жанрів: {genre_names}. Вмикаю Smart Fallback...")
+            has_filters = bool(
+                genres or excluded_genres or content_types or excluded_content_types
+                or year_from or year_to or seasons or score_min is not None
+            )
+            if has_filters:
+                return await http_fallback()
+            raise AllAnimeSeenError(count)
 
-                
-                # Перемішуємо жанри для різноманітності
-                shuffled_names = list(genre_names)
-                random.shuffle(shuffled_names)
-                
-                for single_genre in shuffled_names:
-                    print(f"[RANDOM] 🔄 Пробую окремий жанр в БД: {single_genre}")
-
-                    
-                    # SQL-запит по одному жанру (замість ітерації по всіх рядках)
-                    fb_query, fb_params = self._build_filter_query(
-                        exclude_ids=exclude_ids,
-                        genre_names=[single_genre],
-                        excluded_names=excluded_names,
-                        content_types=content_types,
-                        excluded_content_types=excluded_content_types,
-                        year_from=year_from, year_to=year_to,
-                        score_min=score_min, seasons=seasons, limit=50,
-                    )
-                    fb_rows = conn.execute(fb_query, fb_params).fetchall()
-                    candidates = [self._row_to_anime(r) for r in fb_rows]
-                    
-                    if candidates:
-                        print(f"[RANDOM] ✅ Smart Fallback знайшов {len(candidates)} аніме в жанрі '{single_genre}'")
-
-                        break
-            
-            # Якщо і Smart Fallback не допоміг - HTTP
-            if not candidates:
-                if genres or excluded_genres or content_types or excluded_content_types or year_from or year_to or seasons or score_min is not None:
-                    print(f"[RANDOM] ❌ SQL + Smart Fallback не знайшли кандидатів, fallback на HTTP API")
-
-                    return await self._random_anime_http(exclude_ids, last_page, genres, excluded_genres, content_types, excluded_content_types, year_from, year_to, seasons, score_min, tries)
-                else:
-                    raise AllAnimeSeenError(count)
-            
-        got = random.choice(candidates)
-        print(f"[RANDOM] ✅ Знайдено в SQL: {got.title}")
-
-        
-        # Відновлюємо деталі (опис, лінки) через старий механізм (кеш або запит)
+        got = candidates[0]
+        print(f"[RANDOM] Знайдено в SQL: {got.title}")
         async with aiohttp.ClientSession() as session:
-             await self._enrich_anime_details(session, got)
-             return got, 1
+            await self._enrich_anime_details(session, got)
+        return got, 1
 
     async def _enrich_anime_details(self, session: aiohttp.ClientSession, got: Anime):
-        """Підтягує деталі (опис, лінки) + LAZY LOADING + створення в anime_library"""
-        
-        # ✅ Один SQL замість трьох: перевіряємо існування, жанри та UA постер
-        lib_info = self._get_library_info(got.slug)
+        lib_info = await self._get_library_info(got.slug)
         library_record_exists = lib_info is not None
         library_has_genres = False
-        
+
         if lib_info:
             lib_genres_json, lib_ua_poster = lib_info
-            # Перевіряємо жанри
             if lib_genres_json:
                 try:
                     genres = json.loads(lib_genres_json)
-                    library_has_genres = isinstance(genres, list) and len(genres) > 0
+                    library_has_genres = isinstance(genres, list) and bool(genres)
                 except Exception:
                     pass
-            # Підтягуємо ua_poster_url якщо немає
             if not got.ua_poster_url and lib_ua_poster:
                 got.ua_poster_url = lib_ua_poster
-        
-        # Кеш тепер зберігає тільки опис і лінки (не жанри)
-        cached = get_cached_details(got.slug)
+
+        cached = await get_cached_details(got.slug)
         if cached:
             cached_desc, cached_links = cached
             if not got.description and cached_desc:
                 got.description = cached_desc
             if not got.watch_links and cached_links:
                 got.watch_links = cached_links
-            
-        # Якщо немає опису/лінків/жанрів — йдемо на API
+
         if not got.description or not got.watch_links or not got.genres:
             try:
-                await self.load_details(session, got.slug)
-                got.description = self.description or got.description
-                got.watch_links = self.watch_links or got.watch_links
-                got.genres = self.genres or got.genres
-                
-                # Зберігаємо тільки опис і лінки в кеш
-                set_cached_details(got.slug, got.description, got.watch_links)
-                    
+                details = await self.load_details(session, got.slug)
+                got.description = details.description or got.description
+                got.watch_links = details.watch_links or got.watch_links
+                got.genres = details.genres or got.genres
+                await set_cached_details(got.slug, got.description, got.watch_links)
             except Exception as e:
                 print(f"[ENRICH] Error loading details: {e}")
 
-
-        
-        # LAZY: Створюємо/оновлюємо запис в anime_library якщо потрібно
         if not library_record_exists or (got.genres and not library_has_genres):
-            self._ensure_anime_in_library(got)
+            await self._ensure_anime_in_library(got)
 
-    def _get_library_info(self, slug: str):
+    async def _get_library_info(self, slug: str):
         """Повертає (genres_json, ua_poster_url) або None якщо запис не існує."""
         try:
             conn = db()
-            row = conn.execute(
+            row = await conn.execute(
                 "SELECT genres_json, ua_poster_url FROM anime_library WHERE slug=%s", (slug,)
             ).fetchone()
             return row  # None якщо не існує
         except Exception:
             return None
 
-    def _ensure_anime_in_library(self, anime: Anime) -> None:
+    async def _ensure_anime_in_library(self, anime: Anime) -> None:
         """
         Забезпечує що аніме є в anime_library.
         Якщо запис існує - оновлює жанри.
@@ -1219,13 +1193,13 @@ class HikkaClient:
             genres_json = json.dumps(anime.genres[:8] if anime.genres else [], ensure_ascii=False)
             now = int(time.time())
             
-            with transaction():
+            async with transaction():
                 conn = db()
                 
                 # Перевіряємо чи існує запис
-                if self._get_library_info(anime.slug) is not None:
+                if await self._get_library_info(anime.slug) is not None:
                     # Оновлюємо тільки жанри якщо запис існує
-                    conn.execute(
+                    await conn.execute(
                         UPDATE_LIBRARY_GENRES,
                         (genres_json, now, anime.slug)
                     )
@@ -1234,7 +1208,7 @@ class HikkaClient:
 
                 else:
                     # Створюємо новий запис
-                    conn.execute(
+                    await conn.execute(
                         INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE,
                         (
                             anime.slug,
@@ -1297,9 +1271,9 @@ class HikkaClient:
         """
         if limit:
             query += " LIMIT %s"
-            rows = conn.execute(query, (limit,)).fetchall()
+            rows = await conn.execute(query, (limit,)).fetchall()
         else:
-            rows = conn.execute(query).fetchall()
+            rows = await conn.execute(query).fetchall()
         total = len(rows)
         
         if total == 0:
@@ -1341,8 +1315,8 @@ class HikkaClient:
                 
                 # Оновлюємо в БД
                 genres_json = json.dumps(genres, ensure_ascii=False)
-                with transaction():
-                    conn.execute(
+                async with transaction():
+                    await conn.execute(
                         UPDATE_LIBRARY_GENRES,
                         (genres_json, int(time.time()), slug)
                     )
@@ -1376,82 +1350,47 @@ class HikkaClient:
         session: aiohttp.ClientSession,
         limit: Optional[int] = None,
     ) -> Tuple[int, int, int]:
-        """
-        Синхронізує anime_details_cache з API для всіх slug'ів у anime_library:
-        - Створює запис якщо його немає в кеші.
-        - Оновлює запис якщо опис або watch_links з API відрізняються від кешованих.
-        Повертає (changed, unchanged, failed).
-        """
+        """Оновлює лише відсутній або прострочений кеш описів і посилань."""
         conn = db()
-        query = "SELECT slug FROM anime_library ORDER BY slug"
+        query = """
+            SELECT l.slug
+            FROM anime_library l
+            LEFT JOIN anime_details_cache d ON d.slug = l.slug
+            WHERE d.slug IS NULL OR d.expires_at IS NULL OR d.expires_at < %s
+            ORDER BY l.slug
+        """
+        params: list[Any] = [int(time.time())]
         if limit is not None:
-            query += f" LIMIT {int(limit)}"
-        rows = conn.execute(query).fetchall()
+            query += " LIMIT %s"
+            params.append(int(limit))
+        rows = await conn.execute(query, params).fetchall()
         slugs = [row[0] for row in rows]
 
         if not slugs:
-            print("[DETAILS] anime_library порожня — нічого синхронізувати")
+            print("[DETAILS] Кеш деталей актуальний — оновлення не потрібне")
             return (0, 0, 0)
 
         total = len(slugs)
-        print(f"[DETAILS] Перевіряю {total} тайтлів на відмінності з API...")
-
+        print(f"[DETAILS] Оновлюю {total} відсутніх або прострочених записів...")
         changed = 0
-        unchanged = 0
         failed = 0
 
         for i, slug in enumerate(slugs, 1):
             try:
-                data = await self.fetch_anime_details(session, slug)
-
-                desc_raw = data.get("synopsis_ua") or data.get("description_ua")
-                description = clean_synopsis(str(desc_raw)) if desc_raw else None
-
-                watch_links: List[Dict[str, str]] = []
-                external = data.get("external") or []
-                if isinstance(external, list):
-                    for ext in external:
-                        if isinstance(ext, dict) and ext.get("type") == "watch" and ext.get("url"):
-                            watch_links.append({
-                                "text": str(ext.get("text") or ext.get("url") or "Дивитись"),
-                                "url": str(ext["url"]),
-                            })
-
-                # Порівнюємо з поточним кешем (без TTL фільтру)
-                cached_row = conn.execute(
-                    "SELECT description, watch_links_json FROM anime_details_cache WHERE slug=%s",
-                    (slug,),
-                ).fetchone()
-
-                if cached_row is not None:
-                    cached_desc, cached_wl_json = cached_row
-                    try:
-                        cached_wl = json.loads(cached_wl_json) if cached_wl_json else []
-                        if not isinstance(cached_wl, list):
-                            cached_wl = []
-                    except Exception:
-                        cached_wl = []
-
-                    if cached_desc == description and cached_wl == watch_links:
-                        unchanged += 1
-                    else:
-                        set_cached_details(slug, description, watch_links)
-                        changed += 1
-                else:
-                    set_cached_details(slug, description, watch_links)
-                    changed += 1
-
+                details = await self.load_details(session, slug)
+                await set_cached_details(slug, details.description, details.watch_links)
+                changed += 1
             except Exception as e:
                 failed += 1
                 print(f"[DETAILS] ⚠️ Помилка для {slug}: {e}")
 
             if i % 50 == 0:
-                print(f"[DETAILS] Прогрес: {i}/{total} | Змінено: {changed} | Без змін: {unchanged} | Помилок: {failed}")
+                print(f"[DETAILS] Прогрес: {i}/{total} | Оновлено: {changed} | Помилок: {failed}")
 
             await asyncio.sleep(0.5)
 
-        print(f"[DETAILS] ✅ Завершено: змінено {changed}, без змін {unchanged}, помилок {failed}")
-        return (changed, unchanged, failed)
+        print(f"[DETAILS] ✅ Завершено: оновлено {changed}, помилок {failed}")
+        return (changed, 0, failed)
 
     async def _random_anime_http(
         self,
@@ -1621,46 +1560,5 @@ class HikkaClient:
                 )
 
             print(f"[РЕКОМЕНДАЦІЯ] Обрано: {got.slug} | {got.title}")
-
-
-            cached = get_cached_details(got.slug)
-            if cached:
-                cached_desc, cached_links = cached
-                if not got.description and cached_desc:
-                    got.description = cached_desc
-                if not got.watch_links and cached_links:
-                    got.watch_links = cached_links
-
-            if not got.genres:
-                details_success = False
-                for detail_attempt in range(3):
-                    try:
-                        await self.load_details(session, got.slug)
-                        got.description = self.description or got.description
-                        got.genres = self.genres or got.genres
-                        got.watch_links = self.watch_links or got.watch_links
-
-                        if got.genres:
-                            details_success = True
-                            # 🔥 LAZY LOADING: Зберігаємо/створюємо запис в бібліотеці
-                            self._ensure_anime_in_library(got)
-
-                        set_cached_details(
-                            got.slug,
-                            got.description,
-                            got.watch_links
-                        )
-                        break
-
-                    except Exception as e:
-                        print(f"  → Спроба {detail_attempt + 1}/3 деталей провалилась: {e}")
-
-
-                        if detail_attempt < 2:
-                            await asyncio.sleep(1)
-
-                if not details_success:
-                    print(f"[WARNING] Не вдалося завантажити жанри для {got.slug}")
-
-
+            await self._enrich_anime_details(session, got)
             return got, page

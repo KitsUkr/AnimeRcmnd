@@ -34,37 +34,13 @@ def save_genre_mapping(genres_data: list) -> List[str]:
     # print(f"[GENRES] Збережено маппінг: {len(GENRE_MAP)} жанрів")
     return names
 
-def sync_genre_mapping(genres_data: list = None) -> None:
-    """
-    Синхронізує GENRE_MAP зі свіжими даними з bot_meta.
-    Викликається після синхронізації жанрів у sync_library().
-    
-    Args:
-        genres_data: Список жанрів для синхронізації (опціонально).
-                    Якщо не передано, завантажує з bot_meta.
-    """
-    global GENRE_MAP
-    
-    if genres_data is None:
-        # Завантажуємо з bot_meta
-        from api.hikka_client import meta_get, META_AVAILABLE_GENRES
-        cached = meta_get(META_AVAILABLE_GENRES)
-        if not cached:
-            print("[GENRES] ⚠️ Дані жанрів не знайдені в bot_meta")
-
-            return
-        
-        try:
-            genres_data = json.loads(cached[0])
-        except Exception as e:
-            print(f"[GENRES] ❌ Помилка парсингу жанрів з bot_meta: {e}")
-
-            return
-    
+def sync_genre_mapping(genres_data: list) -> None:
+    """Оновлює GENRE_MAP зі свіжими даними Hikka."""
     save_genre_mapping(genres_data)
-def get_selected_genres(user_id: int) -> List[str]:
+
+async def get_selected_genres(user_id: int) -> List[str]:
     conn = db()
-    row = conn.execute("SELECT selected_genres_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT selected_genres_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -74,12 +50,12 @@ def get_selected_genres(user_id: int) -> List[str]:
 
         return []
 
-def set_selected_genres(user_id: int, genres: List[str]) -> None:
+async def set_selected_genres(user_id: int, genres: List[str]) -> None:
     json_str = json.dumps(sorted(set(genres)), ensure_ascii=False)
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, selected_genres_json, updated_at)
             VALUES (%s, %s, %s)
@@ -90,9 +66,9 @@ def set_selected_genres(user_id: int, genres: List[str]) -> None:
             (user_id, json_str, now),
         )
 
-def get_excluded_genres(user_id: int) -> List[str]:
+async def get_excluded_genres(user_id: int) -> List[str]:
     conn = db()
-    row = conn.execute("SELECT excluded_genres_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT excluded_genres_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -102,12 +78,12 @@ def get_excluded_genres(user_id: int) -> List[str]:
 
         return []
 
-def set_excluded_genres(user_id: int, genres: List[str]) -> None:
+async def set_excluded_genres(user_id: int, genres: List[str]) -> None:
     json_str = json.dumps(sorted(set(genres)), ensure_ascii=False)
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, excluded_genres_json, updated_at)
             VALUES (%s, %s, %s)
@@ -118,30 +94,29 @@ def set_excluded_genres(user_id: int, genres: List[str]) -> None:
             (user_id, json_str, now),
         )
 
-def toggle_genre(user_id: int, genre: str) -> List[str]:
-    current = get_selected_genres(user_id)
+async def toggle_genre(user_id: int, genre: str) -> List[str]:
+    current = await get_selected_genres(user_id)
     if genre in current:
         current.remove(genre)
     else:
         current.append(genre)
-        # Ensure it's not in excluded
-        excluded = get_excluded_genres(user_id)
+        excluded = await get_excluded_genres(user_id)
         if genre in excluded:
             excluded.remove(genre)
-            set_excluded_genres(user_id, excluded)
-            
-    set_selected_genres(user_id, current)
+            await set_excluded_genres(user_id, excluded)
+
+    await set_selected_genres(user_id, current)
     return current
 
-def clear_selected_genres(user_id: int) -> None:
-    set_selected_genres(user_id, [])
+async def clear_selected_genres(user_id: int) -> None:
+    await set_selected_genres(user_id, [])
 
-def clear_excluded_genres(user_id: int) -> None:
-    set_excluded_genres(user_id, [])
+async def clear_excluded_genres(user_id: int) -> None:
+    await set_excluded_genres(user_id, [])
 
-def get_genre_snapshot(user_id: int) -> List[str]:
+async def get_genre_snapshot(user_id: int) -> List[str]:
     conn = db()
-    row = conn.execute("SELECT genre_snapshot_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
+    row = await conn.execute("SELECT genre_snapshot_json FROM user_state WHERE user_id = %s", (user_id,)).fetchone()
     if not row or not row[0]:
         return []
     try:
@@ -151,12 +126,12 @@ def get_genre_snapshot(user_id: int) -> List[str]:
 
         return []
 
-def set_genre_snapshot(user_id: int, genres: List[str]) -> None:
+async def set_genre_snapshot(user_id: int, genres: List[str]) -> None:
     json_str = json.dumps(sorted(set(genres)), ensure_ascii=False)
     now = int(time.time())
-    with transaction():
+    async with transaction():
         conn = db()
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO user_state (user_id, genre_snapshot_json, updated_at)
             VALUES (%s, %s, %s)
@@ -180,7 +155,7 @@ async def get_all_genres(hikka_client) -> List[str]:
     from api.hikka_client import meta_get, META_AVAILABLE_GENRES
     
     # Приоритет 1: Читаємо з bot_meta
-    cached = meta_get(META_AVAILABLE_GENRES)
+    cached = await meta_get(META_AVAILABLE_GENRES)
     if cached:
         try:
             genres_data = json.loads(cached[0])
@@ -210,7 +185,7 @@ async def get_all_genres(hikka_client) -> List[str]:
         # Зберігаємо в bot_meta для кешування
         from api.hikka_client import meta_set, META_AVAILABLE_GENRES
         genres_json = json.dumps(genres_data, ensure_ascii=False)
-        meta_set(META_AVAILABLE_GENRES, genres_json)
+        await meta_set(META_AVAILABLE_GENRES, genres_json)
         
         # Синхронізуємо GENRE_MAP
         sync_genre_mapping(genres_data)
@@ -241,38 +216,25 @@ def get_slug_by_name(name: str) -> str:
 def get_name_by_slug(slug: str) -> str:
     return GENRE_MAP.get(slug, slug)
 
-def toggle_genre_slug(user_id: int, genre_slug: str) -> None:
-    # Tri-state logic: Neutral -> Included -> Excluded -> Neutral
-    included = get_selected_genres(user_id)
-    excluded = get_excluded_genres(user_id)
-    
+async def toggle_genre_slug(user_id: int, genre_slug: str) -> None:
+    included = await get_selected_genres(user_id)
+    excluded = await get_excluded_genres(user_id)
+
     if genre_slug in included:
-        # Included -> Excluded
         included.remove(genre_slug)
         if genre_slug not in excluded:
             excluded.append(genre_slug)
-        
-        set_selected_genres(user_id, included)
-        set_excluded_genres(user_id, excluded)
-        
+        await set_selected_genres(user_id, included)
+        await set_excluded_genres(user_id, excluded)
     elif genre_slug in excluded:
-        # Excluded -> Neutral
         excluded.remove(genre_slug)
-        set_excluded_genres(user_id, excluded)
-        
+        await set_excluded_genres(user_id, excluded)
     else:
-        # Neutral -> Included
-        # Ensure it's not in excluded (sanity check)
-        if genre_slug in excluded:
-            excluded.remove(genre_slug)
-            set_excluded_genres(user_id, excluded)
-            
         included.append(genre_slug)
-        set_selected_genres(user_id, included)
-    
-    # Reset alert flag so user sees updated filter info
+        await set_selected_genres(user_id, included)
+
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(user_id)
+    await reset_filter_alert(user_id)
 
 ITEMS_PER_PAGE = 12
 
@@ -369,11 +331,9 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
     
     user_id = c.from_user.id
     
-    # Show hint alert on first visit
-    if not is_genre_hint_shown(user_id):
-        hint_text = t.GENRE_HINT
-        await c.answer(hint_text, show_alert=True)
-        set_genre_hint_shown(user_id)
+    if not await is_genre_hint_shown(user_id):
+        await c.answer(t.GENRE_HINT, show_alert=True)
+        await set_genre_hint_shown(user_id)
     else:
         await c.answer()
     
@@ -383,12 +343,10 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
         await c.answer(t.ALERT_GENRES_LOAD_ERROR, show_alert=True)
         return
         
-    inc = get_selected_genres(user_id)
-    exc = get_excluded_genres(user_id)
-    
-    # Store snapshot in DB
+    inc = await get_selected_genres(user_id)
+    exc = await get_excluded_genres(user_id)
     snapshot = list(set(inc) | set(exc))
-    set_genre_snapshot(user_id, snapshot)
+    await set_genre_snapshot(user_id, snapshot)
 
     text = t.GENRE_MENU_TEXT
     
@@ -404,7 +362,7 @@ async def cb_open_genres(c: CallbackQuery, hikka_client):
         sent = c.message
     
     # Mark that user is in genre menu
-    enter_genre_menu(user_id, sent.message_id)
+    await enter_genre_menu(user_id, sent.message_id)
 
 @router.callback_query(GenreCB.filter(F.action == "page"))
 async def cb_genre_page_nav(c: CallbackQuery, callback_data: GenreCB, hikka_client):
@@ -413,9 +371,9 @@ async def cb_genre_page_nav(c: CallbackQuery, callback_data: GenreCB, hikka_clie
         
     genres = await get_all_genres(hikka_client)
     
-    inc = get_selected_genres(c.from_user.id)
-    exc = get_excluded_genres(c.from_user.id)
-    snapshot = get_genre_snapshot(c.from_user.id)
+    inc = await get_selected_genres(c.from_user.id)
+    exc = await get_excluded_genres(c.from_user.id)
+    snapshot = await get_genre_snapshot(c.from_user.id)
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
 
@@ -430,13 +388,13 @@ async def cb_toggle_genre(c: CallbackQuery, callback_data: GenreCB, hikka_client
         return
     
     # Unified toggle
-    toggle_genre_slug(c.from_user.id, slug)
+    await toggle_genre_slug(c.from_user.id, slug)
     
     genres = await get_all_genres(hikka_client)
     
-    inc = get_selected_genres(c.from_user.id)
-    exc = get_excluded_genres(c.from_user.id)
-    snapshot = get_genre_snapshot(c.from_user.id)
+    inc = await get_selected_genres(c.from_user.id)
+    exc = await get_excluded_genres(c.from_user.id)
+    snapshot = await get_genre_snapshot(c.from_user.id)
     
     await safe_edit_reply_markup(c.message, reply_markup=kb_genres(included=inc, excluded=exc, genres=genres, page=page, snapshot_slugs=snapshot))
 
@@ -445,15 +403,12 @@ async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client)
     page = callback_data.page or 0
     # sid is ignored
         
-    # Clear ALL
-    clear_selected_genres(c.from_user.id) 
-    clear_excluded_genres(c.from_user.id)
-    # Clear Snapshot because nothing is selected anymore
-    set_genre_snapshot(c.from_user.id, [])
-    
-    # Reset alert flag so user sees updated filter info
+    await clear_selected_genres(c.from_user.id)
+    await clear_excluded_genres(c.from_user.id)
+    await set_genre_snapshot(c.from_user.id, [])
+
     from UaAnimeRcmd import reset_filter_alert
-    reset_filter_alert(c.from_user.id)
+    await reset_filter_alert(c.from_user.id)
     
     genres = await get_all_genres(hikka_client)
     
@@ -465,7 +420,7 @@ async def cb_genre_clear(c: CallbackQuery, callback_data: GenreCB, hikka_client)
 async def cb_genre_back(c: CallbackQuery, start_text: str, kb_start_func):
     # Exit genre menu state
     from UaAnimeRcmd import exit_genre_menu
-    exit_genre_menu(c.from_user.id)
+    await exit_genre_menu(c.from_user.id)
     
     await c.answer()
     await safe_edit_text(c.message, start_text, reply_markup=kb_start_func())
@@ -474,10 +429,10 @@ async def cb_genre_back(c: CallbackQuery, start_text: str, kb_start_func):
 async def cb_genre_recommend(c: CallbackQuery, hikka_client, db_funcs: dict):
     # Exit genre menu state
     from UaAnimeRcmd import exit_genre_menu
-    exit_genre_menu(c.from_user.id)
+    await exit_genre_menu(c.from_user.id)
     
     user_id = c.from_user.id
-    selected_slugs = get_selected_genres(user_id)
+    selected_slugs = await get_selected_genres(user_id)
     
     if not selected_slugs:
         await c.answer(t.ALERT_NEED_AT_LEAST_ONE_GENRE, show_alert=True)
@@ -520,7 +475,7 @@ async def handle_genre_text_search(message: Message, hikka_client):
     user_id = message.from_user.id
     
     # Check if user is in genre menu
-    if not is_in_genre_menu(user_id):
+    if not await is_in_genre_menu(user_id):
         return  # Not in genre menu, ignore
     
     raw_text = message.text.strip()
@@ -557,9 +512,9 @@ async def handle_genre_text_search(message: Message, hikka_client):
     not_found = []       # No match
     ambiguous = []       # Multiple matches
     
-    inc = get_selected_genres(user_id)
-    exc = get_excluded_genres(user_id)
-    snapshot = get_genre_snapshot(user_id)
+    inc = await get_selected_genres(user_id)
+    exc = await get_excluded_genres(user_id)
+    snapshot = await get_genre_snapshot(user_id)
     
     for query in queries:
         matches = find_genre_by_text(query)
@@ -599,10 +554,10 @@ async def handle_genre_text_search(message: Message, hikka_client):
     
     # Save changes if any added
     if added:
-        set_selected_genres(user_id, inc)
-        set_excluded_genres(user_id, exc)
-        set_genre_snapshot(user_id, snapshot)
-        reset_filter_alert(user_id)
+        await set_selected_genres(user_id, inc)
+        await set_excluded_genres(user_id, exc)
+        await set_genre_snapshot(user_id, snapshot)
+        await reset_filter_alert(user_id)
     
     # Build feedback message
     feedback_parts = []
@@ -617,7 +572,7 @@ async def handle_genre_text_search(message: Message, hikka_client):
             feedback_parts.append(f"🔍 \"{q}\" — уточніть: {', '.join(opts)}")
     
     # Update the genre menu message
-    menu_message_id = get_genre_menu_message_id(user_id)
+    menu_message_id = await get_genre_menu_message_id(user_id)
     if menu_message_id and added:
         genres = await get_all_genres(hikka_client)
         text = t.GENRE_MENU_TEXT

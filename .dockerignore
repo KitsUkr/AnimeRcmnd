@@ -1,0 +1,13 @@
+.git/
+.gitignore
+.env
+.agents/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+scripts/
+posters.db
+Dockerfile
+docker-compose.yml
+README.md

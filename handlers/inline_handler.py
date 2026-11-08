@@ -2,6 +2,7 @@
 Inline Mode Handler - дозволяє шукати аніме з будь-якого чату.
 Використання: @bot_username <назва аніме>
 """
+import html
 import json
 import hashlib
 from typing import List, Optional, Dict
@@ -29,16 +30,16 @@ MAX_RESULTS = 20
 PHOTO_CAPTION_LIMIT = 1024
 
 
-def search_anime_by_title(query: str, limit: int = MAX_RESULTS) -> List[tuple]:
+async def search_anime_by_title(query: str, limit: int = MAX_RESULTS) -> List[Anime]:
     """
     Пошук аніме по назві в локальній БД.
-    Повертає список tuple з даними аніме та watch_links.
+    Повертає список Anime з даними картки та watch_links.
     """
     conn = db()
     
     if not query.strip():
         # Порожній запит — повертаємо випадкові аніме
-        rows = conn.execute(
+        rows = await conn.execute(
             """
             SELECT l.slug, l.title, l.genres_json, l.score, l.year, l.episodes_total, 
                    l.poster_url, l.hikka_url, l.ua_poster_url, l.content_type,
@@ -53,22 +54,23 @@ def search_anime_by_title(query: str, limit: int = MAX_RESULTS) -> List[tuple]:
             (limit,)
         ).fetchall()
     else:
-        # Пошук по назві (ILIKE для case-insensitive)
-        search_pattern = f"%{query}%"
-        rows = conn.execute(
+        search_text = query.strip()[:100]
+        escaped_query = search_text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f"%{escaped_query}%"
+        rows = await conn.execute(
             """
-            SELECT l.slug, l.title, l.genres_json, l.score, l.year, l.episodes_total, 
+            SELECT l.slug, l.title, l.genres_json, l.score, l.year, l.episodes_total,
                    l.poster_url, l.hikka_url, l.ua_poster_url, l.content_type,
                    COALESCE(d.description, '') as description,
                    COALESCE(d.watch_links_json, '[]') as watch_links_json
             FROM anime_library l
             LEFT JOIN anime_details_cache d ON l.slug = d.slug
-            WHERE l.title ILIKE %s
+            WHERE (l.title ILIKE %s ESCAPE '\\' OR l.title %% %s)
               AND l.score IS NOT NULL AND l.score > 0
-            ORDER BY l.score DESC
+            ORDER BY similarity(l.title, %s) DESC, l.score DESC
             LIMIT %s
             """,
-            (search_pattern, limit)
+            (search_pattern, search_text, search_text, limit)
         ).fetchall()
     
     results = []
@@ -170,10 +172,10 @@ async def inline_search(query: InlineQuery):
     
     # Пошук аніме
     if search_text:
-        anime_list = search_anime_by_title(search_text, limit=MAX_RESULTS)
+        anime_list = await search_anime_by_title(search_text, limit=MAX_RESULTS)
     else:
         # Порожній запит — показуємо 1 випадкове аніме (справжній рандом!)
-        anime_list = search_anime_by_title("", limit=1)
+        anime_list = await search_anime_by_title("", limit=1)
     
     results = []
     
@@ -185,7 +187,7 @@ async def inline_search(query: InlineQuery):
                 title=t.INLINE_NO_RESULTS_TITLE,
                 description=f"Спробуйте інший запит: \"{search_text[:30]}...\"" if len(search_text) > 30 else f"Запит: \"{search_text}\"",
                 input_message_content=InputTextMessageContent(
-                    message_text=t.INLINE_NO_RESULTS_MSG.format(query=search_text),
+                    message_text=t.INLINE_NO_RESULTS_MSG.format(query=html.escape(search_text)),
                     parse_mode="HTML"
                 ),
             )
@@ -235,6 +237,6 @@ async def inline_search(query: InlineQuery):
     
     await query.answer(
         results=results,
-        cache_time=0,
-        is_personal=True
+        cache_time=5,
+        is_personal=False,
     )
