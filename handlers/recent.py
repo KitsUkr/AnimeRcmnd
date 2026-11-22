@@ -1,12 +1,8 @@
-"""Хендлер команди /new — показує аніме, додані до бази протягом
-поточного циклу синхронізації (≈12 днів від моменту виклику).
-
-Семантика "нового" базується на колонці `anime_library.inserted_at`,
-яка проставляється тільки при INSERT (ON CONFLICT її не змінює).
-Поріг — `LIBRARY_SYNC_INTERVAL - 1 day`, що відтворює TTL "до дня
-перед наступним повним синком" без потреби scheduled task.
+"""Хендлер команди /new — показує точну партію аніме, доданих
+останньою синхронізацією. Список slug зберігається у `bot_meta`,
+що дає той самий набір і лічильник, які були у сповіщенні.
 """
-import time
+import json
 import uuid
 from collections import OrderedDict
 from typing import Optional
@@ -21,9 +17,9 @@ from aiogram.types import (
 )
 
 import texts as t
-from api.hikka_client import HikkaClient, LIBRARY_SYNC_INTERVAL
+from api.hikka_client import HikkaClient, META_RECENT_ANIME_SLUGS
 from database.connection import db
-from database.queries import SELECT_RECENT_ANIME_SLUGS
+from database.queries import SELECT_RECENT_ANIME_BY_SLUGS, SELECT_RECENT_ANIME_LATEST_BATCH
 from utils.anime_card import (
     prepare_anime_card,
     send_card_to_message,
@@ -109,9 +105,29 @@ def _kb_with_nav(cb_id: str, recent_id: str, index: int, total: int) -> InlineKe
 
 
 async def _fetch_recent_slugs() -> list[str]:
-    """SELECT slugs новеньких аніме (inserted_at у поточному циклі)."""
-    threshold = int(time.time()) - (LIBRARY_SYNC_INTERVAL - 86400)
-    rows = await db().execute(SELECT_RECENT_ANIME_SLUGS, (threshold,)).fetchall()
+    """Повертає slug-и точної партії останньої синхронізації."""
+    conn = db()
+    meta_row = await conn.execute(
+        "SELECT value FROM bot_meta WHERE key=%s",
+        (META_RECENT_ANIME_SLUGS,),
+    ).fetchone()
+
+    if meta_row is not None:
+        try:
+            slugs = json.loads(meta_row[0] or "[]")
+            if not isinstance(slugs, list):
+                raise ValueError("recent anime metadata is not a list")
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            print(f"[RECENT] Помилка читання списку нових аніме: {e}")
+        else:
+            slugs = [str(slug) for slug in slugs]
+            if not slugs:
+                return []
+            rows = await conn.execute(SELECT_RECENT_ANIME_BY_SLUGS, (slugs,)).fetchall()
+            return [row[0] for row in rows]
+
+    # Сумісність із БД, оновленою до появи збереженого списку партії.
+    rows = await conn.execute(SELECT_RECENT_ANIME_LATEST_BATCH).fetchall()
     return [row[0] for row in rows]
 
 

@@ -277,11 +277,16 @@ INSERT_LIBRARY_ITEM_SKIP_POSTER_UPDATE = """
         season=EXCLUDED.season
 """
 
-SELECT_RECENT_ANIME_SLUGS = """
+SELECT_RECENT_ANIME_BY_SLUGS = """
     SELECT slug FROM anime_library
-    WHERE inserted_at IS NOT NULL
-      AND inserted_at >= %s
-    ORDER BY inserted_at DESC
+    WHERE slug = ANY(%s::text[])
+    ORDER BY inserted_at DESC, slug
+"""
+
+SELECT_RECENT_ANIME_LATEST_BATCH = """
+    SELECT slug FROM anime_library
+    WHERE inserted_at = (SELECT MAX(inserted_at) FROM anime_library)
+    ORDER BY slug
 """
 
 COUNT_LIBRARY = """

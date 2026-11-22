@@ -43,6 +43,7 @@ META_TOTAL_TRANSLATED = "total_translated_titles"
 META_LAST_LIBRARY_SYNC = "last_library_sync"
 META_LAST_POSTERS_SYNC = "last_posters_sync"
 META_AVAILABLE_GENRES = "available_genres_json"
+META_RECENT_ANIME_SLUGS = "recent_anime_slugs_json"
 
 DETAILS_TTL_SECONDS = 12 * 24 * 3600  # 12 days
 LIBRARY_SYNC_INTERVAL = 13 * 24 * 3600 # 13 days
@@ -946,6 +947,10 @@ class HikkaClient:
                     await meta_set(META_LAST_POSTERS_SYNC, "done")
 
             await meta_set(META_TOTAL_TRANSLATED, str(actual_count))
+            await meta_set(
+                META_RECENT_ANIME_SLUGS,
+                json.dumps(inserted_slugs, ensure_ascii=False),
+            )
 
             if inserted_slugs:
                 print(f"[LIBRARY] 🌱 Додано {len(inserted_slugs)} нових тайтлів (доступні через /new)")
