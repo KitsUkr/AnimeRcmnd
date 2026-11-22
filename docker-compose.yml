@@ -5,10 +5,20 @@ services:
     container_name: uaanisubbot
     restart: unless-stopped
     image: uaanisubbot:latest
-    env_file:
-      - .env
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      BOT_TOKEN: "${BOT_TOKEN:?задайте BOT_TOKEN}"
+      CHANNEL_USERNAME: "${CHANNEL_USERNAME:-}"
+      ADMIN_IDS: "${ADMIN_IDS:-}"
+
+      HIKKA_API_BASE: "${HIKKA_API_BASE:-https://api.hikka.io}"
+      HIKKA_API_TOKEN: "${HIKKA_API_TOKEN:-}"
+      HIKKA_CLIENT_REFERENCE: "${HIKKA_CLIENT_REFERENCE:-}"
+      HIKKA_CLIENT_SECRET: "${HIKKA_CLIENT_SECRET:-}"
+
+      DB_POOL_MIN_SIZE: "${DB_POOL_MIN_SIZE:-1}"
+      DB_POOL_MAX_SIZE: "${DB_POOL_MAX_SIZE:-10}"
+
+      DATABASE_URL: "postgresql://${POSTGRES_USER:?задайте POSTGRES_USER}:${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?задайте POSTGRES_DB}"
     depends_on:
       postgres:
         condition: service_healthy
